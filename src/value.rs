@@ -2,8 +2,11 @@
 
 use std::collections::HashMap;
 
-#[doc(hidden)]
 mod convert;
+mod number;
+
+#[doc(inline)]
+pub use number::Number;
 
 /// Represents a Twic value.
 #[derive(Debug, Clone, PartialEq)]
@@ -13,7 +16,7 @@ pub enum Value {
     /// Represents a Twic boolean value.
     Boolean(bool),
     /// Represents a Twic number value.
-    Number(f64),
+    Number(Number),
     /// Represents a Twic string value.
     String(String),
     /// Represents a Twic vector value.
@@ -58,7 +61,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::Number(3.14);
+    /// let v = Value::Number(3.14.into());
     /// assert!(v.is_number());
     /// ```
     pub fn is_number(&self) -> bool {
@@ -86,7 +89,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::Vector(vec![Value::Number(1.0), Value::Number(2.0)]);
+    /// let v = Value::Vector(vec![1.0.into(), 2.0.into()]);
     /// assert!(v.is_vector());
     /// ```
     pub fn is_vector(&self) -> bool {
@@ -102,7 +105,7 @@ impl Value {
     /// use std::collections::HashMap;
     ///
     /// let mut map = HashMap::new();
-    /// map.insert("key".to_owned(), Value::Number(42.0));
+    /// map.insert("key".to_owned(), 42f64.into());
     /// let v = Value::Map(map);
     /// assert!(v.is_map());
     /// ```

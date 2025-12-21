@@ -3,7 +3,7 @@ use alloc::{
     string::String,
 };
 
-use super::Value;
+use super::{Number, Value};
 
 impl From<()> for Value {
     /// Converts a unit type to a Twic null value.
@@ -34,6 +34,23 @@ impl From<bool> for Value {
     /// ```
     fn from(value: bool) -> Self {
         Value::Boolean(value)
+    }
+}
+
+impl<T: Into<Number>> From<T> for Value {
+    /// Converts a convertible item to a Twic number value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    /// use twic::value::Number;
+    ///
+    /// let n: Value = 3.14f64.into();
+    /// assert!(n.is_number());
+    /// ```
+    fn from(value: T) -> Self {
+        Value::Number(value.into())
     }
 }
 
@@ -132,7 +149,8 @@ impl<T: Into<Value>, const N: usize> From<[T; N]> for Value {
 }
 
 impl<T: Clone + Into<Value>> From<&[T]> for Value {
-    /// Converts a reference to a slice of convertible items to a Twic vector value.
+    /// Converts a reference to a slice of convertible items to a Twic vector
+    /// value.
     ///
     /// # Examples
     ///
@@ -149,7 +167,8 @@ impl<T: Clone + Into<Value>> From<&[T]> for Value {
 }
 
 impl<T: Clone + Into<Value>, const N: usize> From<&[T; N]> for Value {
-    /// Converts a reference to an array of convertible items to a Twic vector value.
+    /// Converts a reference to an array of convertible items to a Twic vector
+    /// value.
     ///
     /// # Examples
     ///
@@ -166,7 +185,8 @@ impl<T: Clone + Into<Value>, const N: usize> From<&[T; N]> for Value {
 }
 
 impl<T: Into<Value>> FromIterator<T> for Value {
-    /// Creates a Twic vector value by collecting an iterator of convertible items.
+    /// Creates a Twic vector value by collecting an iterator of convertible
+    /// items.
     ///
     /// # Examples
     ///
