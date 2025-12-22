@@ -632,6 +632,64 @@ impl Number {
             _ => None,
         }
     }
+
+    /// Converts the Twic number to an f32 if it is a float, NaN, or infinity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Number;
+    ///
+    /// let n: Number = 3.14f32.into();
+    /// assert_eq!(n.as_f32(), Some(3.14));
+    /// let nan: Number = f32::NAN.into();
+    /// assert!(nan.as_f32().unwrap().is_nan());
+    /// let inf: Number = f32::INFINITY.into();
+    /// assert_eq!(inf.as_f32(), Some(f32::INFINITY));
+    /// ```
+    pub const fn as_f32(&self) -> Option<f32> {
+        match self {
+            Number::Float(n) => Some(*n as f32),
+            Number::NaN => Some(f32::NAN),
+            Number::Inf { negative } => {
+                if *negative {
+                    Some(f32::NEG_INFINITY)
+                } else {
+                    Some(f32::INFINITY)
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Converts the Twic number to an f64 if it is a float, NaN, or infinity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Number;
+    ///
+    /// let n: Number = 3.14f64.into();
+    /// assert_eq!(n.as_f64(), Some(3.14));
+    /// let nan: Number = f64::NAN.into();
+    /// assert!(nan.as_f64().unwrap().is_nan());
+    /// let inf: Number = f64::INFINITY.into();
+    /// assert_eq!(inf.as_f64(), Some(f64::INFINITY));
+    /// ```
+    pub const fn as_f64(&self) -> Option<f64> {
+        match self {
+            Number::Float(n) => Some(*n),
+            Number::NaN => Some(f64::NAN),
+            Number::Inf { negative } => {
+                if *negative {
+                    Some(f64::NEG_INFINITY)
+                } else {
+                    Some(f64::INFINITY)
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Debug for Number {

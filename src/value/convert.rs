@@ -1,6 +1,7 @@
 use alloc::{
     borrow::{Cow, ToOwned},
     string::String,
+    vec::Vec,
 };
 
 use super::{Number, Value};
