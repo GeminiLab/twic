@@ -45,7 +45,6 @@ impl<T: Into<Number>> From<T> for Value {
     ///
     /// ```
     /// use twic::value::Value;
-    /// use twic::value::Number;
     ///
     /// let n: Value = 3.14f64.into();
     /// assert!(n.is_number());
@@ -63,8 +62,7 @@ impl From<String> for Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let s = String::from("hello");
-    /// let v: Value = s.into();
+    /// let v: Value = String::from("hello").into();
     /// assert!(v.is_string());
     /// ```
     fn from(value: String) -> Self {
@@ -97,17 +95,10 @@ impl From<Cow<'_, str>> for Value {
     /// use twic::value::Value;
     /// use std::borrow::Cow;
     ///
-    /// let cow: Cow<str> = Cow::Borrowed("hello");
-    /// let v: Value = cow.into();
+    /// let v: Value = Cow::Borrowed("hello").into();
     /// assert!(v.is_string());
-    /// ```
     ///
-    /// ```
-    /// use twic::value::Value;
-    /// use std::borrow::Cow;
-    ///
-    /// let cow: Cow<str> = Cow::Owned(String::from("hello"));
-    /// let v: Value = cow.into();
+    /// let v: Value = Cow::<str>::Owned(String::from("hello")).into();
     /// assert!(v.is_string());
     /// ```
     fn from(value: Cow<'_, str>) -> Self {
@@ -123,12 +114,11 @@ impl<T: Into<Value>> From<Vec<T>> for Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let vec = vec!["one", "two", "three"];
-    /// let v: Value = vec.into();
+    /// let v: Value = vec!["one", "two", "three"].into();
     /// assert!(v.is_vector());
     /// ```
     fn from(value: Vec<T>) -> Self {
-        Value::Vector(value.into_iter().map(Into::into).collect())
+        Value::vector_from(value)
     }
 }
 
@@ -145,7 +135,7 @@ impl<T: Into<Value>, const N: usize> From<[T; N]> for Value {
     /// assert!(v.is_vector());
     /// ```
     fn from(value: [T; N]) -> Self {
-        Value::Vector(value.into_iter().map(Into::into).collect())
+        Value::vector_from(value)
     }
 }
 
@@ -163,7 +153,7 @@ impl<T: Clone + Into<Value>> From<&[T]> for Value {
     /// assert!(v.is_vector());
     /// ```
     fn from(value: &[T]) -> Self {
-        Value::Vector(value.iter().cloned().map(Into::into).collect())
+        Value::vector_clone_from(value)
     }
 }
 
@@ -181,7 +171,7 @@ impl<T: Clone + Into<Value>, const N: usize> From<&[T; N]> for Value {
     /// assert!(v.is_vector());
     /// ```
     fn from(value: &[T; N]) -> Self {
-        Value::Vector(value.iter().cloned().map(Into::into).collect())
+        Value::vector_clone_from(value)
     }
 }
 
@@ -194,20 +184,14 @@ impl<T: Into<Value>> FromIterator<T> for Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let iter = std::iter::repeat("item").take(5);
-    /// let v: Value = iter.collect();
+    /// let v: Value = std::iter::repeat("item").take(5).collect();
     /// assert!(v.is_vector());
-    /// ```
     ///
-    /// ```
-    /// use twic::value::Value;
-    ///
-    /// let vec = vec!["one", "two", "three"];
-    /// let v: Value = vec.into_iter().collect();
+    /// let v: Value = vec!["one", "two", "three"].into_iter().collect();
     /// assert!(v.is_vector());
     /// ```
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Value::Vector(iter.into_iter().map(Into::into).collect())
+        Value::vector_from(iter)
     }
 }
 

@@ -129,6 +129,20 @@ impl<T: IndexInto + ?Sized> IndexInto for &T {
     }
 }
 
+/// Panics indicating that the given type is not indexable.
+fn panic_not_indexable(type_name: &str) -> ! {
+    panic!("twic value of type {} is not indexable", type_name)
+}
+
+/// Panics indicating that the given index type is incompatible with the value
+/// type.
+fn panic_incompatible_index_type(type_name: &str) -> ! {
+    panic!(
+        "incompatible index type for twic value of type {}",
+        type_name
+    )
+}
+
 impl<T: IndexInto> core::ops::Index<T> for Value {
     type Output = Value;
 
@@ -137,54 +151,47 @@ impl<T: IndexInto> core::ops::Index<T> for Value {
     ///
     /// # Panics
     ///
-    /// Panics if the value is not indexable, the index type is incompatible,
-    /// or the key/index is not found.
+    /// Panics if the value is not indexable, the index type is incompatible.
     ///
     /// # Examples
     ///
     /// ```
     /// use twic::value::{Value, Map};
     ///
-    /// let mut v = Value::Vector(vec![Value::Number(1.into()), Value::Number(2.into())]);
+    /// let mut v = Value::vector_from([1, 2]);
     /// assert_eq!(v[0], Value::Number(1.into()));
     ///
-    /// let mut m = Value::Map(Map::new());
-    /// m["key"] = Value::String("value".to_owned());
-    /// assert_eq!(m["key"], Value::String("value".to_owned()));
+    /// let mut m = Value::map_empty();
+    /// m["key"] = Value::string("value");
+    /// assert_eq!(m["key"], Value::string("value"));
     /// ```
     ///
     /// ```
     /// use twic::value::{Value, Map};
     ///
-    /// let mut m = Value::Map(Map::new());
+    /// let mut m = Value::map_empty();
     /// assert_eq!(m["missing_key"], Value::Null);
     /// ```
     ///
     /// ```should_panic
     /// use twic::value::Value;
     ///
-    /// let v = Value::Number(42.into());
+    /// let v = Value::number(42);
     /// let _ = v[0]; // Panics: Value of type Number is not indexable
     /// ```
     ///
     /// ```should_panic
     /// use twic::value::{Value, Map};
     ///
-    /// let mut m = Value::Map(Map::new());
+    /// let mut m = Value::map_empty();
     /// let _ = m[0]; // Panics: Incompatible index type for Value of type Map
     /// ```
     fn index(&self, index: T) -> &Self::Output {
+        let type_name = self.type_name();
         match index.index_into(self) {
             Ok(value) => value,
-            Err(ValueIndexError::NotIndexable) => {
-                panic!("Value of type {} is not indexable", self.type_name())
-            }
-            Err(ValueIndexError::IncompatibleIndexType) => {
-                panic!(
-                    "Incompatible index type for Value of type {}",
-                    self.type_name()
-                )
-            }
+            Err(ValueIndexError::NotIndexable) => panic_not_indexable(type_name),
+            Err(ValueIndexError::IncompatibleIndexType) => panic_incompatible_index_type(type_name),
             Err(ValueIndexError::KeyNotFound) => {
                 static NULL_VALUE: Value = Value::Null;
                 &NULL_VALUE
@@ -197,6 +204,10 @@ impl<T: IndexInto> core::ops::IndexMut<T> for Value {
     /// Mutably indexes into the [`Value`] using the given index type. If the
     /// index does not exist, a new value is inserted.
     ///
+    /// When indexing into a vector with an out-of-bounds index, the vector is
+    /// automatically extended with `Value::Null` values up to the specified
+    /// index.
+    ///
     /// # Panics
     ///
     /// Panics if the value is not indexable or the index type is incompatible.
@@ -206,38 +217,39 @@ impl<T: IndexInto> core::ops::IndexMut<T> for Value {
     /// ```
     /// use twic::value::{Value, Map};
     ///
-    /// let mut v = Value::Vector(vec![Value::Number(1.into()), Value::Number(2.into())]);
-    /// v[1] = Value::Number(3.into());
-    /// assert_eq!(v[1], Value::Number(3.into()));
+    /// let mut v = Value::vector_from([1, 2]);
+    /// v[1] = Value::number(3);
+    /// assert_eq!(v[1], Value::number(3));
     ///
-    /// let mut m = Value::Map(Map::new());
-    /// m["key"] = Value::String("value".to_owned());
-    /// assert_eq!(m["key"], Value::String("value".to_owned()));
+    /// v[4] = Value::number(5); // Extends the vector with Nulls
+    /// assert_eq!(v[2], Value::Null);
+    /// assert_eq!(v[3], Value::Null);
+    /// assert_eq!(v[4], Value::number(5));
+    ///
+    /// let mut m = Value::map_empty();
+    /// m["key"] = Value::string("value");
+    /// assert_eq!(m["key"], Value::string("value"));
     /// ```
     ///
     /// ```should_panic
     /// use twic::value::Value;
     ///
-    /// let mut v = Value::Number(42.into());
-    /// v[0] = Value::Number(1.into()); // Panics: Value of type Number is not indexable
+    /// let mut v = Value::number(42);
+    /// v[0] = Value::number(1); // Panics: Value of type Number is not indexable
     /// ```
     ///
     /// ```should_panic
     /// use twic::value::{Value, Map};
     ///
-    /// let mut m = Value::Map(Map::new());
-    /// m[0] = Value::Number(1.into()); // Panics: Incompatible index type for Value of type Map
+    /// let mut m = Value::map_empty();
+    /// m[0] = Value::number(1); // Panics: Incompatible index type for Value of type Map
     /// ```
     fn index_mut(&mut self, index: T) -> &mut Self::Output {
         let type_name = self.type_name();
         match index.index_into_or_insert(self) {
             Ok(value) => value,
-            Err(ValueIndexError::NotIndexable) => {
-                panic!("Value of type {} is not indexable", type_name)
-            }
-            Err(ValueIndexError::IncompatibleIndexType) => {
-                panic!("Incompatible index type for Value of type {}", type_name)
-            }
+            Err(ValueIndexError::NotIndexable) => panic_not_indexable(type_name),
+            Err(ValueIndexError::IncompatibleIndexType) => panic_incompatible_index_type(type_name),
             Err(ValueIndexError::KeyNotFound) => {
                 unreachable!("KeyNotFound should not occur in index_into_or_insert")
             }

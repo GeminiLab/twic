@@ -6,4 +6,4 @@ extern crate alloc;
 pub mod value;
 
 #[doc(inline)]
-pub use value::Value;
+pub use value::{Map, Number, Value};

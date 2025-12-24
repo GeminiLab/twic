@@ -28,20 +28,22 @@ JSON:
 
 ## Usage
 
-### Working with untyped data
+### Working with untyped twic values
 
 Use [`twic::value`](`value`) module to manipulate untyped Twic data, with recursive enum representation similar to JSON. The enum type `twic::Value` represents any valid Twic value, and is defined as follows:
 
-```rust,ignore
+```rust
 pub enum Value {
     Null,
     Bool(bool),
-    Number(Number),
+    Number(twic::Number),
     String(String),
     Vector(Vec<Value>),
-    Map(Map<String, Value>),
+    Map(twic::Map),
 }
 ```
+
+This type can represent any valid Twic data structure, and provides various methods for accessing and manipulating the data, including: creating, asserting types, indexing, etc.
 
 ## Syntax
 

@@ -32,6 +32,7 @@ pub enum Value {
     Map(Map),
 }
 
+/// Predicates and accessors for [`Value`].
 impl Value {
     /// Checks if the value is null.
     ///
@@ -122,7 +123,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::Number(3.14.into());
+    /// let v = Value::number(3.14);
     /// assert!(v.is_number());
     /// ```
     pub fn is_number(&self) -> bool {
@@ -136,7 +137,7 @@ impl Value {
     /// ```
     /// use twic::value::{Value, Number};
     ///
-    /// let v = Value::Number(3.14.into());
+    /// let v = Value::number(3.14);
     /// assert_eq!(v.as_number(), Some(Number::from(3.14)));
     /// ```
     pub fn as_number(&self) -> Option<Number> {
@@ -155,7 +156,7 @@ impl Value {
     /// ```
     /// use twic::value::{Value, Number};
     ///
-    /// let mut v = Value::Number(3.14.into());
+    /// let mut v = Value::number(3.14);
     /// if let Some(n) = v.as_number_mut() {
     ///     *n = Number::from(2.71);
     /// }
@@ -176,7 +177,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::String("hello".to_owned());
+    /// let v = Value::string("hello");
     /// assert!(v.is_string());
     /// ```
     pub fn is_string(&self) -> bool {
@@ -190,7 +191,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::String("hello".to_owned());
+    /// let v = Value::string("hello");
     /// assert_eq!(v.as_string(), Some(&"hello".to_owned()));
     /// ```
     pub fn as_string(&self) -> Option<&String> {
@@ -209,7 +210,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let mut v = Value::String("hello".to_owned());
+    /// let mut v = Value::string("hello");
     /// if let Some(s) = v.as_string_mut() {
     ///     s.push_str(" world");
     /// }
@@ -230,7 +231,7 @@ impl Value {
     /// ```
     /// use twic::value::Value;
     ///
-    /// let v = Value::String("hello".to_owned());
+    /// let v = Value::string("hello");
     /// assert_eq!(v.as_str(), Some("hello"));
     /// ```
     pub fn as_str(&self) -> Option<&str> {
@@ -300,8 +301,7 @@ impl Value {
     /// # Examples
     ///
     /// ```
-    /// use twic::value::Value;
-    /// use twic::value::Map;
+    /// use twic::value::{Value, Map};
     ///
     /// let mut map = Map::new();
     /// map.insert("key".to_owned(), 42f64.into());
@@ -330,7 +330,155 @@ impl Value {
             None
         }
     }
+}
 
+/// Constructors for [`Value`].
+impl Value {
+    /// Creates a null value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// assert!(Value::null().is_null());
+    /// ```
+    pub fn null() -> Self {
+        Value::Null
+    }
+
+    /// Creates a boolean value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// assert_eq!(Value::boolean(true).as_boolean(), Some(true));
+    /// ```
+    pub fn boolean(b: bool) -> Self {
+        Value::Boolean(b)
+    }
+
+    /// Creates a number value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// assert_eq!(Value::number(3.14).as_number(), Some(3.14.into()));
+    /// ```
+    pub fn number<N: Into<Number>>(n: N) -> Self {
+        Value::Number(n.into())
+    }
+
+    /// Creates a string value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// assert_eq!(Value::string("hello").as_str(), Some("hello"));
+    /// ```
+    pub fn string<S: Into<String>>(s: S) -> Self {
+        Value::String(s.into())
+    }
+
+    /// Creates a vector value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let v = Value::vector(vec![1.0.into(), 2.0.into()]);
+    /// assert!(v.is_vector());
+    /// ```
+    pub fn vector<V: Into<Vec<Value>>>(v: V) -> Self {
+        Value::Vector(v.into())
+    }
+
+    /// Creates an empty vector value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let v = Value::vector_empty();
+    /// assert_eq!(v.as_vector(), Some(&vec![]));
+    /// ```
+    pub fn vector_empty() -> Self {
+        Value::Vector(Vec::new())
+    }
+
+    /// Creates a vector value from an iterable collection of convertible items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let v = Value::vector_from([1, 2, 3]);
+    /// assert_eq!(v.as_vector(), Some(&vec![1.into(), 2.into(), 3.into()]));
+    /// ```
+    pub fn vector_from<T: Into<Value>, I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Value::Vector(iter.into_iter().map(|item| item.into()).collect())
+    }
+
+    /// Creates a vector value from an iterable collection of references to
+    /// convertible items, cloning each item.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let arr: &[&str] = &["one", "two", "three"];
+    /// let v = Value::vector_clone_from(arr);
+    /// assert!(v.is_vector());
+    /// ```
+    pub fn vector_clone_from<'a, T: Clone + Into<Value> + 'a, I: IntoIterator<Item = &'a T>>(
+        iter: I,
+    ) -> Self {
+        Value::Vector(iter.into_iter().cloned().map(|item| item.into()).collect())
+    }
+
+    /// Creates a map value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::{Value, Map};
+    ///
+    /// let mut m = Map::new();
+    /// m.insert("key".to_owned(), 42f64.into());
+    /// let v = Value::map(m);
+    /// assert!(v.is_map());
+    /// ```
+    pub fn map(m: Map) -> Self {
+        Value::Map(m)
+    }
+
+    /// Creates an empty map value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::{Value, Map};
+    ///
+    /// let v = Value::map_empty();
+    /// assert_eq!(v.as_map(), Some(&Map::new()));
+    /// ```
+    pub fn map_empty() -> Self {
+        Value::Map(Map::new())
+    }
+}
+
+/// Indexing support for [`Value`].
+impl Value {
     /// Indexes into the Value using the provided index. Returns `Some(&Value)`
     /// if the value is indexable and the index exists, `None` otherwise.
     ///
