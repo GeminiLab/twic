@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Number","Value"],"mod":["value"],"type":["Map"]};
