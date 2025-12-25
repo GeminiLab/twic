@@ -6,6 +6,7 @@ mod convert;
 mod index;
 mod map;
 mod number;
+mod partial_eq;
 
 #[doc(inline)]
 pub use index::{IndexInto, IndexMutResult, IndexResult, ValueIndexError};
@@ -474,6 +475,32 @@ impl Value {
     /// ```
     pub fn map_empty() -> Self {
         Value::Map(Map::new())
+    }
+
+    /// Creates a map value from an iterable collection of key-value pairs,
+    /// where keys are convertible to strings and values are convertible to Twic
+    /// values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let pairs = [("one", 1), ("two", 2), ("three", 3)];
+    /// let v = Value::map_from(pairs);
+    /// assert!(v.is_map());
+    /// assert_eq!(v["one"], 1);
+    /// assert_eq!(v["two"], 2);
+    /// assert_eq!(v["three"], 3);
+    /// ```
+    pub fn map_from<K: Into<String>, V: Into<Value>, I: IntoIterator<Item = (K, V)>>(
+        iter: I,
+    ) -> Self {
+        let mut map = Map::new();
+        for (k, v) in iter {
+            map.insert(k.into(), v.into());
+        }
+        Value::Map(map)
     }
 }
 

@@ -195,6 +195,29 @@ impl<T: Into<Value>> FromIterator<T> for Value {
     }
 }
 
+impl<K: Into<String>, V: Into<Value>> FromIterator<(K, V)> for Value {
+    /// Creates a Twic map value by collecting an iterator of key-value pairs
+    /// where keys are convertible to strings and values are convertible to Twic
+    /// values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use twic::value::Value;
+    ///
+    /// let v: Value = vec![
+    ///     ("key1", 1),
+    ///     ("key2", 2),
+    ///     ("key3", 3),
+    /// ].into_iter().collect();
+    /// assert!(v.is_map());
+    /// assert!(v["key1"].as_number().unwrap() == 1);
+    /// ```
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(iter: I) -> Self {
+        Value::map_from(iter)
+    }
+}
+
 impl<T: Into<Value>> From<Option<T>> for Value {
     /// Converts an Option of a convertible item to a Twic value.
     ///
