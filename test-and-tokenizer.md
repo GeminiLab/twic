@@ -1,30 +1,5 @@
 # Twic Tokenizer and Test Implementation
 
-CMT:
-
-Problems found manually:
-
-1. `dyn Trait` should not be used unless it's absolutely necessary. Use type parameters instead.
-2. The logic about read the next non-whitespace character should be moved to the `CharReader` trait, as `next_non_whitespace_char` with a default implementation that can be overridden by the concrete implementations.
-3. The `CharReader` should not handle peeking and line/column tracking. Create a struct `CharReaderState` to handle these.
-4. The traits and structs design are confusion. The desired design now is:
-   1. Core `CharReader` trait: `next_char`/`next_non_whitespace_char`.
-   2. `CharReaderState<R: CharReader>` struct: `next_char`/`peek_char`/`next_non_whitespace_char`/`next_non_whitespace_char`/`current_line`/`current_column`.
-   3. `Parser<R: CharReader>` struct: `new(R)`, `next_token`/`peek_token`/`parse_*`/... .
-   4. `parse<R: CharReader>(reader: R) -> Result<Value, Error>` function.
-   5. `parse_str`/`parse_read` functions.
-5. `Parser::expect_token` is confusing. It should be:
-   1. `try_read_token() -> Result<Option<Token>, Error>`, to read a token. EOF is not an error.
-   2. `try_read_token_of(pred: impl Fn(&Token) -> bool, expected: &'static str) -> Result<Option<Token>, Error>`, to read a token and validate it. EOF is not an error.
-   3. `read_token(expected: &'static str) -> Result<Token, Error>`, to read a token. EOF is an error.
-   4. `read_token_of(pred: impl Fn(&Token) -> bool, expected: &'static str) -> Result<Token, Error>`, to read a token and validate it. EOF is an error.
-   5. `try_read_token` should be the core function, other 3 functions should wrap it.
-6. `TrailingComma` should not exist, it should be `UnexpectedEof { expected: "value" }` if no tokens exist after the last `,`, or `UnexpectedToken { expected: "value", found: xxx }` if cannot read a value after a `,`. That is: always read a value after a `,`, or return an error if cannot read a value after a `,`.
-   1. Therefore `:1,;;` should not be error, it should be `Value::Vector(vec![Value::Number(1), Value::Map(Map::new())])`. And `:1,;` is wrong because the vector is not terminated by a `;`, not because of a trailing comma.
-7. The current `parse_vector` is bad. `parse_value` has consumed `:`, it's completely non-sense to check a second `:`, as `::1,2;,:3,4;;` is a perfectly legal nested vector.
-
-ENDCMT
-
 ## Goal Description
 
 Implement a complete tokenizer (state machine) and recursive descent parser (`TokenRead::into_value`) for the Twic data serialization format in the `twic-new` Rust crate. This includes: expanding the `Token` enum to carry complete data with span information, adding proper error types with span information, creating a generic internal tokenizer module shared by `StrReader` and `StdTokenReader`, implementing `TokenRead::into_value`, and generating comprehensive test cases that verify all Twic types against their expected `Value` representations.

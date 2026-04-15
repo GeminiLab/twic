@@ -55,13 +55,14 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
 ## MUTABLE SECTION
 <!-- Update each round with justification for changes -->
 
-### Plan Version: 1 (Updated: Round 0)
+### Plan Version: 2 (Updated: Round 3)
 
 #### Plan Evolution Log
 <!-- Document any changes to the plan with justification -->
 | Round | Change | Reason | Impact on AC |
 |-------|--------|--------|--------------|
 | 0 | Initial plan | - | - |
+| 3 | Architecture restructure per manual review | User identified 7 design issues: dyn→generic, CharReader/CharReaderState split, Parser<R> redesign, token methods rename, TrailingComma removal, parse_vector fix | AC-4, AC-5, AC-6, AC-7 |
 
 #### Active Tasks
 <!-- Map each task to its target Acceptance Criterion and routing tag -->
@@ -74,9 +75,9 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
 | task5: Generate primitive type test cases | AC-1 | completed | coding | claude | Depends on task1, task4 |
 | task6: Generate composite type and error test cases | AC-1 | completed | coding | claude | Depends on task1, task4 |
 | task7: Implement tokenizer state machine with CharReader trait | AC-4 | completed | coding | claude | Depends on task1, task4 |
-| task8: Implement StrReader using internal tokenizer | AC-5 | completed | coding | claude | Depends on task7 |
-| task9: Implement StdTokenReader using internal tokenizer | AC-6 | completed | coding | claude | Depends on task7 |
-| task10: Implement TokenRead::into_value parser | AC-7 | completed | coding | claude | Depends on task1, task4 |
+| task8: Implement StrReader → now parse_str | AC-5 | completed | coding | claude | Simplified to parse_str/parse_read functions |
+| task9: Implement StdTokenReader → now parse_read | AC-6 | completed | coding | claude | parse_read uses read_to_string + parse_str |
+| task10: Implement into_value parser → Parser<R: CharReader> | AC-7 | completed | coding | claude | Redesigned with try_read_token family |
 | task11: Run all tests via cargo test | AC-8 | completed | analyze | claude | Depends on task5-10 |
 
 ### Completed and Verified
@@ -92,7 +93,7 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
 | AC-5 | task8: StrReader | 0 | 0 | src/read/mod.rs:55-116 |
 | AC-6 | task9: StdTokenReader | 0 | 0 | src/read/mod.rs (std feature) |
 | AC-7 | task10: into_value parser | 0 | 0 | src/read/mod.rs Parser struct |
-| AC-8 | task11: All tests pass | 0 | 0 | cargo test: 43+122 pass, 0 fail |
+| AC-8 | task11: All tests pass | 0 | 3 | cargo test: 51+122 pass, 0 warn, no_std ok |
 
 ### Explicitly Deferred
 <!-- Items here require strong justification -->
