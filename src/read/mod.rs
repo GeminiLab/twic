@@ -311,7 +311,8 @@ fn parse_number(text: &str) -> Result<Value, Error> {
             Ok(Value::Number(Number::PosInt(0)))
         }
     } else {
-        let val: u64 = text
+        let text_unsigned = text.strip_prefix('+').unwrap_or(text);
+        let val: u64 = text_unsigned
             .parse()
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
         Ok(Value::Number(Number::PosInt(val)))
@@ -783,6 +784,12 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.span.line > 0);
         assert!(err.span.column_start > 0);
+    }
+
+    #[test]
+    fn test_parse_positive_signed_integer() {
+        assert_eq!(parse("+3"), Value::Number(Number::PosInt(3)));
+        assert_eq!(parse("+0"), Value::Number(Number::PosInt(0)));
     }
 
     // --- parse_read tests (std feature) ---
