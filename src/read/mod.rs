@@ -123,7 +123,6 @@ impl<'a> TokenRead for StrReader<'a> {
 mod with_std {
     use alloc::boxed::Box;
     use alloc::string::String;
-    use core::iter::Peekable;
 
     use crate::error::Error;
     use crate::value::Value;
@@ -132,39 +131,36 @@ mod with_std {
     use super::{TokenResult, TokenRead};
 
     /// A tokenizer that reads from a `std::io::Read` stream.
+    ///
+    /// The entire input is buffered into memory. This avoids the unsound
+    /// self-referential pattern that would arise from storing a `Chars`
+    /// iterator alongside the owning `String`.
     pub struct StdTokenReader<R: std::io::Read> {
-        chars: Peekable<std::str::Chars<'static>>,
+        buf: Box<str>,
+        pos: usize,
         line: usize,
         column: usize,
         _reader: R,
-        _buf: Box<String>,
     }
 
     impl<R: std::io::Read> StdTokenReader<R> {
         pub fn new(mut reader: R) -> std::io::Result<Self> {
             let mut buf = String::new();
             reader.read_to_string(&mut buf)?;
-            let boxed: Box<String> = Box::new(buf);
-            // SAFETY: We convert the Chars<'a> lifetime to 'static via raw pointer.
-            // This is safe because `_buf` (stored below) keeps the String alive for
-            // the entire lifetime of Self, and the chars iterator only borrows from it.
-            let chars: Peekable<std::str::Chars<'static>> = unsafe {
-                let ptr: *const String = &*boxed;
-                (*ptr).chars().peekable()
-            };
             Ok(Self {
-                chars,
+                buf: buf.into_boxed_str(),
+                pos: 0,
                 line: 1,
                 column: 1,
                 _reader: reader,
-                _buf: boxed,
             })
         }
     }
 
     impl<R: std::io::Read> CharReader for StdTokenReader<R> {
         fn next_char(&mut self) -> Option<char> {
-            let c = self.chars.next()?;
+            let c = self.buf[self.pos..].chars().next()?;
+            self.pos += c.len_utf8();
             if c == '\n' {
                 self.line += 1;
                 self.column = 1;
@@ -175,7 +171,7 @@ mod with_std {
         }
 
         fn peek_char(&mut self) -> Option<char> {
-            self.chars.peek().copied()
+            self.buf[self.pos..].chars().next()
         }
 
         fn current_line(&self) -> usize {

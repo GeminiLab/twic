@@ -1,13 +1,17 @@
 use core::fmt;
 
-/// Source position: line number and column range, both 1-based.
+/// Source position: line number and character column range, both 1-based.
+///
+/// Columns count Unicode code points (characters), not bytes. For example,
+/// in the string `"éx"`, the character `'é'` is at column 1 and `'x'` is at
+/// column 2, regardless of how many bytes `'é'` occupies in UTF-8.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     /// Line number (1-based).
     pub line: usize,
-    /// Start column (1-based, inclusive).
+    /// Start column (1-based, inclusive). Counts Unicode characters, not bytes.
     pub column_start: usize,
-    /// End column (1-based, exclusive).
+    /// End column (1-based, exclusive). Counts Unicode characters, not bytes.
     pub column_end: usize,
 }
 
