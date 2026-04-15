@@ -56,6 +56,12 @@ pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
 }
 
 /// Parses Twic input from a [`std::io::Read`] stream into a [`Value`].
+///
+/// This is a convenience wrapper around [`parse_str`]: it reads the entire
+/// stream into a string, then delegates to `parse_str`. Parse errors are
+/// converted into [`std::io::Error`] with [`InvalidData`](std::io::ErrorKind::InvalidData) kind,
+/// losing the detailed [`Spanned<Error>`] information. For full error
+/// diagnostics, use `parse_str` instead.
 #[cfg(feature = "std")]
 pub fn parse_read<R: std::io::Read>(mut reader: R) -> std::io::Result<Value> {
     let mut buf = String::new();
@@ -120,11 +126,7 @@ impl<R: CharReader> Parser<R> {
         if let Some(spanned) = self.peeked.take() {
             return Ok(Some(spanned));
         }
-        match lexer::tokenize_next(&mut self.state) {
-            None => Ok(None),
-            Some(Ok(spanned)) => Ok(Some(spanned)),
-            Some(Err(spanned)) => Err(spanned),
-        }
+        lexer::tokenize_next(&mut self.state)
     }
 
     /// Reads the next token and validates it with a predicate.
@@ -169,14 +171,13 @@ impl<R: CharReader> Parser<R> {
         if let Some(ref spanned) = self.peeked {
             return Ok(Some(spanned.value.clone()));
         }
-        match lexer::tokenize_next(&mut self.state) {
-            None => Ok(None),
-            Some(Ok(spanned)) => {
+        match lexer::tokenize_next(&mut self.state)? {
+            Some(spanned) => {
                 let token = spanned.value.clone();
                 self.peeked = Some(spanned);
                 Ok(Some(token))
             }
-            Some(Err(spanned)) => Err(spanned),
+            None => Ok(None),
         }
     }
 
@@ -293,6 +294,9 @@ fn parse_number(text: &str) -> Result<Value, Error> {
             if val > i64::MIN.unsigned_abs() {
                 return Err(Error::InvalidNumber(text.to_owned()));
             }
+            // NegInt stores the bit pattern: NegInt(n) represents -(u64::MAX - n + 1).
+            // For example, NegInt(u64::MAX) == -1. wrapping_neg on u64 gives the correct
+            // bit pattern for the two's-complement representation of the negative value.
             Ok(Value::Number(Number::NegInt(val.wrapping_neg())))
         } else {
             Ok(Value::Number(Number::PosInt(val)))
@@ -341,8 +345,12 @@ mod tests {
         let reader = StrCharReader::new(input);
         let mut state = CharReaderState::new(reader);
         let mut tokens = Vec::new();
-        while let Some(result) = lexer::tokenize_next(&mut state) {
-            tokens.push(result);
+        loop {
+            match lexer::tokenize_next(&mut state) {
+                Ok(Some(spanned)) => tokens.push(Ok(spanned)),
+                Ok(None) => break,
+                Err(spanned) => tokens.push(Err(spanned)),
+            }
         }
         tokens
     }

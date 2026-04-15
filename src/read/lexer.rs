@@ -14,6 +14,11 @@ use super::Token;
 /// Implementations provide raw character access from different sources
 /// (`&str`, `std::io::Read`). The trait is kept minimal; peeking and
 /// position tracking are handled by [`CharReaderState`].
+///
+/// There are two concrete implementations:
+/// - [`StrCharReader`] — backed by `Chars<'_>` from a `&str` slice.
+/// - [`CharReaderState`] — wraps any `CharReader` and adds peek/position
+///   tracking (i.e., it implements `CharReader` itself via delegation).
 pub(crate) trait CharReader {
     /// Returns the next character, or `None` at end of input.
     fn next_char(&mut self) -> Option<char>;
@@ -26,7 +31,8 @@ pub(crate) trait CharReader {
 /// Wraps a [`CharReader`] and adds single-character peek and line/column tracking.
 pub(crate) struct CharReaderState<R: CharReader> {
     reader: R,
-    peeked: Option<Option<char>>,
+    peeked_char: Option<char>,
+    has_peeked: bool,
     line: usize,
     column: usize,
 }
@@ -35,20 +41,19 @@ impl<R: CharReader> CharReaderState<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
-            peeked: None,
+            peeked_char: None,
+            has_peeked: false,
             line: 1,
             column: 1,
         }
     }
 
     pub fn peek_char(&mut self) -> Option<char> {
-        if let Some(peeked) = self.peeked {
-            peeked
-        } else {
-            let c = self.reader.next_char();
-            self.peeked = Some(c);
-            c
+        if !self.has_peeked {
+            self.peeked_char = self.reader.next_char();
+            self.has_peeked = true;
         }
+        self.peeked_char
     }
 
     /// Skips whitespace characters without consuming the first non-whitespace
@@ -80,7 +85,16 @@ impl<R: CharReader> CharReaderState<R> {
 
 impl<R: CharReader> CharReader for CharReaderState<R> {
     fn next_char(&mut self) -> Option<char> {
-        self.peeked.take().unwrap_or_else(|| self.reader.next_char()).inspect(|&c| self.advance_line_col(c))
+        let c = if self.has_peeked {
+            self.has_peeked = false;
+            self.peeked_char
+        } else {
+            self.reader.next_char()
+        };
+        if let Some(c) = c {
+            self.advance_line_col(c);
+        }
+        c
     }
 }
 
@@ -113,18 +127,21 @@ impl<'a> CharReader for StrCharReader<'a> {
 
 /// Reads the next token from a [`CharReaderState`].
 ///
-/// Returns `None` at end of input. On success, returns a `Spanned<Token>`.
-/// On failure, returns a `Spanned<Error>`.
+/// Returns `Ok(None)` at end of input. On success, returns
+/// `Ok(Some(Spanned<Token>))`. On failure, returns `Err(Spanned<Error>)`.
 pub(crate) fn tokenize_next<R: CharReader>(
     state: &mut CharReaderState<R>,
-) -> Option<Result<Spanned<Token>, Spanned<Error>>> {
+) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
     state.skip_whitespace();
 
     // Position is now at the first character of the token
     let start_line = state.current_line();
     let start_col = state.current_column();
 
-    let c = state.next_char()?;
+    let c = match state.next_char() {
+        Some(c) => c,
+        None => return Ok(None),
+    };
 
     let result = match c {
         ',' => Ok(Token::Comma),
@@ -138,10 +155,10 @@ pub(crate) fn tokenize_next<R: CharReader>(
     let end_col = state.current_column();
     let span = Span::new(start_line, start_col, end_line, end_col);
 
-    Some(match result {
-        Ok(token) => Ok(Spanned::new(token, span)),
+    match result {
+        Ok(token) => Ok(Some(Spanned::new(token, span))),
         Err(error) => Err(Spanned::new(error, span)),
-    })
+    }
 }
 
 fn read_quoted_string<R: CharReader>(
@@ -188,6 +205,12 @@ fn read_quoted_string<R: CharReader>(
     Ok(Token::String(result))
 }
 
+/// Accumulates a single hex digit into the running value.
+/// Returns `hex * 16 + digit_value(c)`. Caller must ensure `c` is ascii hex.
+fn accumulate_hex(hex: u32, c: char) -> u32 {
+    hex * 16 + (c.to_digit(16).unwrap() as u32)
+}
+
 fn read_braced_unicode<R: CharReader>(
     state: &mut CharReaderState<R>,
 ) -> Result<char, Error> {
@@ -208,7 +231,7 @@ fn read_braced_unicode<R: CharReader>(
                 if count > 8 {
                     return Err(Error::InvalidEscape);
                 }
-                hex = hex * 16 + (c.to_digit(16).unwrap() as u32);
+                hex = accumulate_hex(hex, c);
             }
             _ => return Err(Error::InvalidEscape),
         }
@@ -233,7 +256,7 @@ fn read_hex_digits<R: CharReader>(
         if !c.is_ascii_hexdigit() {
             return Err(Error::InvalidEscape);
         }
-        hex = hex * 16 + (c.to_digit(16).unwrap() as u32);
+        hex = accumulate_hex(hex, c);
     }
     Ok(hex)
 }
