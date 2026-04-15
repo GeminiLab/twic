@@ -265,6 +265,9 @@ fn parse_number(text: &str) -> Result<Value, Error> {
         let val = u64::from_str_radix(hex_str, 16)
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
         if negative && val != 0 {
+            if val > i64::MIN.unsigned_abs() {
+                return Err(Error::InvalidNumber(text.to_owned()));
+            }
             Ok(Value::Number(Number::NegInt(val.wrapping_neg())))
         } else {
             Ok(Value::Number(Number::PosInt(val)))
@@ -274,15 +277,21 @@ fn parse_number(text: &str) -> Result<Value, Error> {
             .parse()
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
         Ok(Value::Number(Number::Float(val)))
-    } else {
+    } else if text.starts_with('-') {
         let val: i64 = text
             .parse()
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
-        if val >= 0 {
-            Ok(Value::Number(Number::PosInt(val as u64)))
-        } else {
+        if val < 0 {
             Ok(Value::Number(Number::NegInt(val as u64)))
+        } else {
+            // -0
+            Ok(Value::Number(Number::PosInt(0)))
         }
+    } else {
+        let val: u64 = text
+            .parse()
+            .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
+        Ok(Value::Number(Number::PosInt(val)))
     }
 }
 
@@ -704,6 +713,35 @@ mod tests {
         let dec_result = parse("-0");
         assert_eq!(hex_result, dec_result);
         assert_eq!(hex_result, Value::Number(Number::PosInt(0)));
+    }
+
+    #[test]
+    fn test_large_positive_decimal() {
+        // i64::MAX + 1 should parse as PosInt(u64)
+        let val = parse("9223372036854775808");
+        assert_eq!(val, Value::Number(Number::PosInt(9223372036854775808)));
+        // u64::MAX
+        let val = parse("18446744073709551615");
+        assert_eq!(val, Value::Number(Number::PosInt(u64::MAX)));
+    }
+
+    #[test]
+    fn test_negative_hex_out_of_range() {
+        // -0x8000000000000001 is beyond i64::MIN and should error
+        let result = parse_str("-0x8000000000000001");
+        assert!(result.is_err());
+        // -0x8000000000000000 == i64::MIN, should succeed
+        let result = parse_str("-0x8000000000000000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_span_multiline_quoted_string() {
+        let tokens = collect_tokens("\"a\nb\"");
+        let spanned = tokens[0].as_ref().unwrap();
+        assert_eq!(spanned.span.line, 1);
+        assert_eq!(spanned.span.end_line, 2);
+        assert_eq!(spanned.span.column_start, 1);
     }
 
     // --- parse_read tests (std feature) ---

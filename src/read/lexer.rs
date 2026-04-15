@@ -165,8 +165,9 @@ pub(crate) fn tokenize_next<R: CharReader>(
         _ => read_unquoted_number_or_keyword(state, c),
     };
 
+    let end_line = state.current_line();
     let end_col = state.current_column();
-    let span = Span::new(start_line, start_col, end_col);
+    let span = Span::new(start_line, start_col, end_line, end_col);
 
     Some(match result {
         Ok(token) => Ok(Spanned::new(token, span)),

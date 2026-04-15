@@ -5,21 +5,28 @@ use core::fmt;
 /// Columns count Unicode code points (characters), not bytes. For example,
 /// in the string `"éx"`, the character `'é'` is at column 1 and `'x'` is at
 /// column 2, regardless of how many bytes `'é'` occupies in UTF-8.
+///
+/// For single-line tokens, `line` and `end_line` are equal. For multiline
+/// tokens (e.g., quoted strings containing newlines), `end_line` records
+/// the line where the token ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
-    /// Line number (1-based).
+    /// Start line number (1-based).
     pub line: usize,
     /// Start column (1-based, inclusive). Counts Unicode characters, not bytes.
     pub column_start: usize,
+    /// End line number (1-based).
+    pub end_line: usize,
     /// End column (1-based, exclusive). Counts Unicode characters, not bytes.
     pub column_end: usize,
 }
 
 impl Span {
-    pub fn new(line: usize, column_start: usize, column_end: usize) -> Self {
+    pub fn new(line: usize, column_start: usize, end_line: usize, column_end: usize) -> Self {
         Self {
             line,
             column_start,
+            end_line,
             column_end,
         }
     }
@@ -27,7 +34,15 @@ impl Span {
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}-{}", self.line, self.column_start, self.column_end)
+        if self.line == self.end_line {
+            write!(f, "{}:{}-{}", self.line, self.column_start, self.column_end)
+        } else {
+            write!(
+                f,
+                "{}:{}-{}:{}",
+                self.line, self.column_start, self.end_line, self.column_end
+            )
+        }
     }
 }
 
