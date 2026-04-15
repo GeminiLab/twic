@@ -24,7 +24,7 @@ All 11 planned tasks completed in a single round:
 
 ## Validation
 
-- `cargo test`: 43 unit tests passed, 0 failed, 0 warnings
+- `cargo test`: 44 unit tests passed, 0 failed, 0 warnings
 - `cargo test --doc`: 122 doc tests passed, 0 failed
 - Clean build with zero warnings
 
@@ -34,6 +34,7 @@ All 11 planned tasks completed in a single round:
 - Parser double borrow: peek returning `&Token` — solved by cloning to owned `Token`
 - StdTokenReader lifetime: `Box::leak` can't be re-Boxed — solved with raw pointer cast
 - Trailing comma detection: `;` treated as empty map value — added explicit check after Comma
+- **Parser token validation bug**: `expect_token(";")` accepted any token, not just `;`. Input `:a,b 0` silently parsed as a vector by consuming `0` as the closing token. Fixed by adding `expect_semicolon()` that validates token type, and similarly validating colon in `parse_map_with_first_key`.
 
 ## Remaining Items
 
