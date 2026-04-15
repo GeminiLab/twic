@@ -92,7 +92,7 @@ fn parse<R: CharReader>(reader: R) -> Result<Value, Spanned<Error>> {
 
 struct Parser<R: CharReader> {
     state: CharReaderState<R>,
-    peeked: Option<Option<Result<Spanned<Token>, Spanned<Error>>>>,
+    peeked: Option<Spanned<Token>>,
 }
 
 impl<R: CharReader> Parser<R> {
@@ -117,12 +117,10 @@ impl<R: CharReader> Parser<R> {
 
     /// Reads the next token. Returns `Ok(None)` at end of input.
     fn try_read_token(&mut self) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
-        let result = if let Some(peeked) = self.peeked.take() {
-            peeked
-        } else {
-            lexer::tokenize_next(&mut self.state)
-        };
-        match result {
+        if let Some(spanned) = self.peeked.take() {
+            return Ok(Some(spanned));
+        }
+        match lexer::tokenize_next(&mut self.state) {
             None => Ok(None),
             Some(Ok(spanned)) => Ok(Some(spanned)),
             Some(Err(spanned)) => Err(spanned),
@@ -168,13 +166,17 @@ impl<R: CharReader> Parser<R> {
 
     /// Peeks at the next token without consuming it.
     fn peek_token(&mut self) -> Result<Option<Token>, Spanned<Error>> {
-        if self.peeked.is_none() {
-            self.peeked = Some(lexer::tokenize_next(&mut self.state));
+        if let Some(ref spanned) = self.peeked {
+            return Ok(Some(spanned.value.clone()));
         }
-        match self.peeked.as_ref().unwrap() {
+        match lexer::tokenize_next(&mut self.state) {
             None => Ok(None),
-            Some(Ok(spanned)) => Ok(Some(spanned.value.clone())),
-            Some(Err(spanned)) => Err(spanned.clone()),
+            Some(Ok(spanned)) => {
+                let token = spanned.value.clone();
+                self.peeked = Some(spanned);
+                Ok(Some(token))
+            }
+            Some(Err(spanned)) => Err(spanned),
         }
     }
 

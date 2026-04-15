@@ -17,19 +17,6 @@ use super::Token;
 pub(crate) trait CharReader {
     /// Returns the next character, or `None` at end of input.
     fn next_char(&mut self) -> Option<char>;
-
-    /// Advances past any whitespace, returning the first non-whitespace
-    /// character or `None` at end of input.
-    #[allow(dead_code)]
-    fn next_non_whitespace_char(&mut self) -> Option<char> {
-        loop {
-            match self.next_char() {
-                Some(c) if c.is_whitespace() => continue,
-                Some(c) => return Some(c),
-                None => return None,
-            }
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +51,15 @@ impl<R: CharReader> CharReaderState<R> {
         }
     }
 
+    /// Skips whitespace characters without consuming the first non-whitespace
+    /// character. After this returns, `peek_char()` returns the first
+    /// non-whitespace character (or `None` at end of input).
+    pub fn skip_whitespace(&mut self) {
+        while self.peek_char().is_some_and(|c| c.is_whitespace()) {
+            self.next_char();
+        }
+    }
+
     pub fn current_line(&self) -> usize {
         self.line
     }
@@ -84,25 +80,7 @@ impl<R: CharReader> CharReaderState<R> {
 
 impl<R: CharReader> CharReader for CharReaderState<R> {
     fn next_char(&mut self) -> Option<char> {
-        let c = if let Some(peeked) = self.peeked.take() {
-            peeked
-        } else {
-            self.reader.next_char()
-        };
-        if let Some(c) = c {
-            self.advance_line_col(c);
-        }
-        c
-    }
-
-    fn next_non_whitespace_char(&mut self) -> Option<char> {
-        loop {
-            match self.next_char() {
-                Some(c) if c.is_whitespace() => continue,
-                Some(c) => return Some(c),
-                None => return None,
-            }
-        }
+        self.peeked.take().unwrap_or_else(|| self.reader.next_char()).inspect(|&c| self.advance_line_col(c))
     }
 }
 
@@ -110,22 +88,22 @@ impl<R: CharReader> CharReader for CharReaderState<R> {
 // Concrete CharReader implementations
 // ---------------------------------------------------------------------------
 
-/// `CharReader` backed by `&str` via `CharIndices`.
+/// `CharReader` backed by `&str` via `Chars`.
 pub(crate) struct StrCharReader<'a> {
-    chars: core::str::CharIndices<'a>,
+    chars: core::str::Chars<'a>,
 }
 
 impl<'a> StrCharReader<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
-            chars: input.char_indices(),
+            chars: input.chars(),
         }
     }
 }
 
 impl<'a> CharReader for StrCharReader<'a> {
     fn next_char(&mut self) -> Option<char> {
-        self.chars.next().map(|(_, c)| c)
+        self.chars.next()
     }
 }
 
@@ -140,16 +118,7 @@ impl<'a> CharReader for StrCharReader<'a> {
 pub(crate) fn tokenize_next<R: CharReader>(
     state: &mut CharReaderState<R>,
 ) -> Option<Result<Spanned<Token>, Spanned<Error>>> {
-    // Skip whitespace without consuming non-whitespace
-    loop {
-        match state.peek_char() {
-            Some(c) if c.is_whitespace() => {
-                state.next_char();
-            }
-            Some(_) => break,
-            None => return None,
-        }
-    }
+    state.skip_whitespace();
 
     // Position is now at the first character of the token
     let start_line = state.current_line();
