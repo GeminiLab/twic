@@ -50,7 +50,7 @@ impl fmt::Display for Token {
 // ---------------------------------------------------------------------------
 
 /// Parses a Twic `&str` input into a [`Value`].
-pub fn parse_str(input: &str) -> Result<Value, Error> {
+pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
     let reader = StrCharReader::new(input);
     parse(reader)
 }
@@ -70,15 +70,18 @@ pub fn parse_read<R: std::io::Read>(mut reader: R) -> std::io::Result<Value> {
 // Internal: parse<R: CharReader>
 // ---------------------------------------------------------------------------
 
-fn parse<R: CharReader>(reader: R) -> Result<Value, Error> {
+fn parse<R: CharReader>(reader: R) -> Result<Value, Spanned<Error>> {
     let mut parser = Parser::new(reader);
     let value = parser.parse_value()?;
     // Ensure no trailing tokens
-    if let Some(token) = parser.try_read_token()? {
-        return Err(Error::UnexpectedToken {
-            expected: "end of input",
-            found: token_name(&token),
-        });
+    if let Some(spanned) = parser.try_read_token()? {
+        return Err(Spanned::new(
+            Error::UnexpectedToken {
+                expected: "end of input",
+                found: token_name(&spanned.value),
+            },
+            spanned.span,
+        ));
     }
     Ok(value)
 }
@@ -100,10 +103,20 @@ impl<R: CharReader> Parser<R> {
         }
     }
 
+    /// Returns a Span at the current reader position (for EOF errors).
+    fn current_span(&self) -> Span {
+        Span::new(
+            self.state.current_line(),
+            self.state.current_column(),
+            self.state.current_line(),
+            self.state.current_column(),
+        )
+    }
+
     // -- Token reading methods --
 
     /// Reads the next token. Returns `Ok(None)` at end of input.
-    fn try_read_token(&mut self) -> Result<Option<Token>, Error> {
+    fn try_read_token(&mut self) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
         let result = if let Some(peeked) = self.peeked.take() {
             peeked
         } else {
@@ -111,8 +124,8 @@ impl<R: CharReader> Parser<R> {
         };
         match result {
             None => Ok(None),
-            Some(Ok(spanned)) => Ok(Some(spanned.value)),
-            Some(Err(spanned)) => Err(spanned.value),
+            Some(Ok(spanned)) => Ok(Some(spanned)),
+            Some(Err(spanned)) => Err(spanned),
         }
     }
 
@@ -122,20 +135,24 @@ impl<R: CharReader> Parser<R> {
         &mut self,
         pred: impl Fn(&Token) -> bool,
         expected: &'static str,
-    ) -> Result<Option<Token>, Error> {
+    ) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
         match self.try_read_token()? {
-            Some(token) if pred(&token) => Ok(Some(token)),
-            Some(token) => Err(Error::UnexpectedToken {
-                expected,
-                found: token_name(&token),
-            }),
+            Some(spanned) if pred(&spanned.value) => Ok(Some(spanned)),
+            Some(spanned) => Err(Spanned::new(
+                Error::UnexpectedToken {
+                    expected,
+                    found: token_name(&spanned.value),
+                },
+                spanned.span,
+            )),
             None => Ok(None),
         }
     }
 
     /// Reads the next token. Returns error on end of input.
-    fn read_token(&mut self, expected: &'static str) -> Result<Token, Error> {
-        self.try_read_token()?.ok_or(Error::UnexpectedEof { expected })
+    fn read_token(&mut self, expected: &'static str) -> Result<Spanned<Token>, Spanned<Error>> {
+        self.try_read_token()?
+            .ok_or(Spanned::new(Error::UnexpectedEof { expected }, self.current_span()))
     }
 
     /// Reads the next token and validates it with a predicate.
@@ -144,33 +161,33 @@ impl<R: CharReader> Parser<R> {
         &mut self,
         pred: impl Fn(&Token) -> bool,
         expected: &'static str,
-    ) -> Result<Token, Error> {
+    ) -> Result<Spanned<Token>, Spanned<Error>> {
         self.try_read_token_of(pred, expected)?
-            .ok_or(Error::UnexpectedEof { expected })
+            .ok_or(Spanned::new(Error::UnexpectedEof { expected }, self.current_span()))
     }
 
     /// Peeks at the next token without consuming it.
-    fn peek_token(&mut self) -> Result<Option<&Token>, Error> {
+    fn peek_token(&mut self) -> Result<Option<Token>, Spanned<Error>> {
         if self.peeked.is_none() {
             self.peeked = Some(lexer::tokenize_next(&mut self.state));
         }
         match self.peeked.as_ref().unwrap() {
             None => Ok(None),
-            Some(Ok(spanned)) => Ok(Some(&spanned.value)),
-            Some(Err(spanned)) => Err(spanned.value.clone()),
+            Some(Ok(spanned)) => Ok(Some(spanned.value.clone())),
+            Some(Err(spanned)) => Err(spanned.clone()),
         }
     }
 
     // -- Parsing methods --
 
-    fn parse_value(&mut self) -> Result<Value, Error> {
-        let token = self.read_token("value")?;
+    fn parse_value(&mut self) -> Result<Value, Spanned<Error>> {
+        let spanned = self.read_token("value")?;
 
-        match token {
+        match spanned.value {
             Token::Null => Ok(Value::Null),
             Token::True => Ok(Value::Boolean(true)),
             Token::False => Ok(Value::Boolean(false)),
-            Token::Number(s) => parse_number(&s),
+            Token::Number(s) => parse_number(&s).map_err(|e| Spanned::new(e, spanned.span)),
             Token::Colon => self.parse_vector(),
             Token::SemiColon => Ok(Value::Map(Map::new())),
             Token::String(s) => {
@@ -182,14 +199,17 @@ impl<R: CharReader> Parser<R> {
                     _ => Ok(Value::String(s)),
                 }
             }
-            Token::Comma => Err(Error::UnexpectedToken {
-                expected: "value",
-                found: ",",
-            }),
+            Token::Comma => Err(Spanned::new(
+                Error::UnexpectedToken {
+                    expected: "value",
+                    found: ",",
+                },
+                spanned.span,
+            )),
         }
     }
 
-    fn parse_vector(&mut self) -> Result<Value, Error> {
+    fn parse_vector(&mut self) -> Result<Value, Spanned<Error>> {
         let mut vec = Vec::new();
 
         if !matches!(self.peek_token()?, Some(Token::SemiColon)) {
@@ -204,7 +224,7 @@ impl<R: CharReader> Parser<R> {
         Ok(Value::Vector(vec))
     }
 
-    fn parse_map_with_first_key(&mut self, first_key: String) -> Result<Value, Error> {
+    fn parse_map_with_first_key(&mut self, first_key: String) -> Result<Value, Spanned<Error>> {
         let mut map = Map::new();
         let value = self.parse_value()?;
         map.insert(first_key, value);
@@ -212,14 +232,17 @@ impl<R: CharReader> Parser<R> {
         while matches!(self.peek_token()?, Some(Token::Comma)) {
             self.try_read_token()?; // consume Comma
 
-            let key_token = self.read_token("string key")?;
-            let key = match key_token {
+            let key_spanned = self.read_token("string key")?;
+            let key = match key_spanned.value {
                 Token::String(s) => s,
                 other => {
-                    return Err(Error::UnexpectedToken {
-                        expected: "string key",
-                        found: token_name(&other),
-                    });
+                    return Err(Spanned::new(
+                        Error::UnexpectedToken {
+                            expected: "string key",
+                            found: token_name(&other),
+                        },
+                        key_spanned.span,
+                    ));
                 }
             };
 
@@ -742,6 +765,24 @@ mod tests {
         assert_eq!(spanned.span.line, 1);
         assert_eq!(spanned.span.end_line, 2);
         assert_eq!(spanned.span.column_start, 1);
+    }
+
+    #[test]
+    fn test_error_carries_span() {
+        let result = parse_str(r#""unclosed"#);
+        let err = result.unwrap_err();
+        assert_eq!(err.span.line, 1);
+        assert_eq!(err.span.column_start, 1);
+        assert!(err.span.line > 0);
+        assert!(err.span.column_start > 0);
+    }
+
+    #[test]
+    fn test_unexpected_token_carries_span() {
+        let result = parse_str(":a,b 0");
+        let err = result.unwrap_err();
+        assert!(err.span.line > 0);
+        assert!(err.span.column_start > 0);
     }
 
     // --- parse_read tests (std feature) ---

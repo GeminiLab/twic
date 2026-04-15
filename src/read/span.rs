@@ -61,10 +61,9 @@ impl<T> Spanned<T> {
 
 impl<T: fmt::Display> fmt::Display for Spanned<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} @ {}:{}",
-            self.value, self.span.line, self.span.column_start
-        )
+        write!(f, "{} @ {}", self.value, self.span)
     }
 }
+
+#[cfg(feature = "std")]
+impl<T: std::error::Error> std::error::Error for Spanned<T> {}
