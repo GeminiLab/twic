@@ -63,7 +63,7 @@ pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
 #[cfg(feature = "std")]
 pub fn parse_read<R: std::io::Read>(mut reader: R) -> Result<Value, ReadError> {
     let mut buf = String::new();
-    reader.read_to_string(&mut buf).map_err(ReadError::Io)?;
+    reader.read_to_string(&mut buf)?;
     parse_str(&buf).map_err(ReadError::Parse)
 }
 
@@ -97,6 +97,20 @@ impl std::error::Error for ReadError {
             ReadError::Io(e) => Some(e),
             ReadError::Parse(e) => Some(e),
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<std::io::Error> for ReadError {
+    fn from(e: std::io::Error) -> Self {
+        ReadError::Io(e)
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<Spanned<Error>> for ReadError {
+    fn from(e: Spanned<Error>) -> Self {
+        ReadError::Parse(e)
     }
 }
 
