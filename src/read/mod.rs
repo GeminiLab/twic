@@ -1,6 +1,7 @@
 mod lexer;
 mod span;
 
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -108,8 +109,11 @@ impl<'a> TokenRead for StrReader<'a> {
         };
         let value = parser.parse_value()?;
         // Ensure no trailing tokens
-        if parser.next_token()?.is_some() {
-            return Err(Error::TrailingComma);
+        if let Some(token) = parser.next_token()? {
+            return Err(Error::UnexpectedToken {
+                expected: "end of input",
+                found: token_name(&token),
+            });
         }
         Ok(value)
     }
@@ -197,8 +201,11 @@ mod with_std {
                 iter: self.peekable(),
             };
             let value = parser.parse_value()?;
-            if parser.next_token()?.is_some() {
-                return Err(Error::TrailingComma);
+            if let Some(token) = parser.next_token()? {
+                return Err(Error::UnexpectedToken {
+                    expected: "end of input",
+                    found: super::token_name(&token),
+                });
             }
             Ok(value)
         }
@@ -310,6 +317,10 @@ impl<I: Iterator<Item = TokenResult>> Parser<I> {
         while matches!(self.peek_token()?, Some(Token::Comma)) {
             self.iter.next(); // consume Comma
 
+            if matches!(self.peek_token()?, Some(Token::SemiColon)) {
+                return Err(Error::TrailingComma);
+            }
+
             let key_token = self.expect_token("string key")?;
             let key = match key_token {
                 Token::String(s) => s,
@@ -370,7 +381,7 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
         let val = u64::from_str_radix(hex_str, 16)
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
         if negative {
-            Ok(Value::Number(Number::NegInt(val.wrapping_neg() as u64)))
+            Ok(Value::Number(Number::NegInt(val.wrapping_neg())))
         } else {
             Ok(Value::Number(Number::PosInt(val)))
         }
@@ -386,7 +397,7 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
         if val >= 0 {
             Ok(Value::Number(Number::PosInt(val as u64)))
         } else {
-            Ok(Value::Number(Number::NegInt((val as u64).wrapping_sub(1))))
+            Ok(Value::Number(Number::NegInt(val as u64)))
         }
     }
 }
@@ -397,6 +408,9 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::borrow::ToOwned;
+    use alloc::vec;
+
     use super::*;
     use crate::value::Number;
 
@@ -612,8 +626,9 @@ mod tests {
         let result = parse("-7");
         match result {
             Value::Number(Number::NegInt(n)) => {
-                // NegInt uses offset encoding; verify round-trip
-                assert_eq!(n, (-7i64 as u64).wrapping_sub(1));
+                // NegInt(n) represents -(u64::MAX - n + 1); for -7, n should be
+                // u64::MAX - 6, which is the same as (-7i64 as u64)
+                assert_eq!(n, (-7i64) as u64);
             }
             other => panic!("expected NegInt, got {:?}", other),
         }
@@ -710,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn test_a() {
+    fn test_parse_vector_non_semicolon_terminator() {
         let result = StrReader::new(":a,b 0").into_value();
         assert!(result.is_err());
     }
@@ -766,5 +781,89 @@ mod tests {
             ]),
         );
         assert_eq!(result, Value::Vector(vec![Value::Map(inner_map)]));
+    }
+
+    #[test]
+    fn test_negative_hex_encoding_matches_decimal() {
+        let hex_result = parse("-0x1");
+        let dec_result = parse("-1");
+        assert_eq!(hex_result, dec_result);
+    }
+
+    #[test]
+    fn test_map_trailing_comma_error() {
+        let result = StrReader::new("a:1,;").into_value();
+        assert!(matches!(result, Err(Error::TrailingComma)));
+    }
+
+    // --- StdTokenReader tests (std feature) ---
+
+    #[cfg(feature = "std")]
+    mod std_tests {
+        use super::*;
+        use std::io::Cursor;
+
+        fn std_parse(input: &str) -> Value {
+            let cursor = Cursor::new(input.as_bytes());
+            StdTokenReader::new(cursor).unwrap().into_value().unwrap()
+        }
+
+        fn std_tokens(input: &str) -> Vec<Token> {
+            let cursor = Cursor::new(input.as_bytes());
+            StdTokenReader::new(cursor)
+                .unwrap()
+                .map(|r| r.map(|s| s.value).map_err(|e| e.value))
+                .collect::<core::result::Result<Vec<Token>, Error>>()
+                .unwrap()
+        }
+
+        #[test]
+        fn test_std_empty_input() {
+            let cursor = Cursor::new(b"");
+            let reader = StdTokenReader::new(cursor).unwrap();
+            let tokens: Vec<_> = reader.collect();
+            assert!(tokens.is_empty());
+        }
+
+        #[test]
+        fn test_std_token_parity_with_str_reader() {
+            let input = r#"name:twic,version:1,items::a,b;;"#;
+            let str_tokens = tokens_ok(input);
+            let std_tokens = std_tokens(input);
+            assert_eq!(str_tokens, std_tokens);
+        }
+
+        #[test]
+        fn test_std_parse_null() {
+            assert_eq!(std_parse("null"), Value::Null);
+        }
+
+        #[test]
+        fn test_std_parse_map() {
+            let mut expected = Map::new();
+            expected.insert("msg".into(), Value::String("hello!".into()));
+            expected.insert("from".into(), Value::String("twic".into()));
+            assert_eq!(std_parse("msg:hello!,from:twic;"), Value::Map(expected));
+        }
+
+        #[test]
+        fn test_std_span_tracking() {
+            let cursor = Cursor::new(b"hello world");
+            let tokens: Vec<_> = StdTokenReader::new(cursor).unwrap().collect();
+            let first = tokens[0].as_ref().unwrap();
+            assert_eq!(first.span.line, 1);
+            assert_eq!(first.span.column_start, 1);
+            assert_eq!(first.span.column_end, 6);
+        }
+
+        #[test]
+        fn test_std_malformed_input() {
+            let cursor = Cursor::new(b"\"unclosed");
+            let tokens: Vec<_> = StdTokenReader::new(cursor).unwrap().collect();
+            assert!(matches!(
+                tokens[0],
+                Err(ref e) if e.value == Error::UnfinishedString
+            ));
+        }
     }
 }
