@@ -57,18 +57,46 @@ pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
 
 /// Parses Twic input from a [`std::io::Read`] stream into a [`Value`].
 ///
-/// This is a convenience wrapper around [`parse_str`]: it reads the entire
-/// stream into a string, then delegates to `parse_str`. Parse errors are
-/// converted into [`std::io::Error`] with [`InvalidData`](std::io::ErrorKind::InvalidData) kind,
-/// losing the detailed [`Spanned<Error>`] information. For full error
-/// diagnostics, use `parse_str` instead.
+/// This reads the entire stream into a string, then delegates to
+/// [`parse_str`]. Both I/O errors and parse errors are preserved in
+/// the [`ReadError`] return type.
 #[cfg(feature = "std")]
-pub fn parse_read<R: std::io::Read>(mut reader: R) -> std::io::Result<Value> {
+pub fn parse_read<R: std::io::Read>(mut reader: R) -> Result<Value, ReadError> {
     let mut buf = String::new();
-    reader.read_to_string(&mut buf)?;
-    match parse_str(&buf) {
-        Ok(value) => Ok(value),
-        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+    reader.read_to_string(&mut buf).map_err(ReadError::Io)?;
+    parse_str(&buf).map_err(ReadError::Parse)
+}
+
+/// Error type for [`parse_read`].
+///
+/// Wraps either an I/O error that occurred while reading the stream,
+/// or a parse error with full span information.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub enum ReadError {
+    /// An I/O error occurred while reading from the stream.
+    Io(std::io::Error),
+    /// A parse error occurred with span information.
+    Parse(Spanned<Error>),
+}
+
+#[cfg(feature = "std")]
+impl fmt::Display for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReadError::Io(e) => write!(f, "I/O error: {}", e),
+            ReadError::Parse(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ReadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ReadError::Io(e) => Some(e),
+            ReadError::Parse(e) => Some(e),
+        }
     }
 }
 
@@ -837,6 +865,18 @@ mod tests {
             let str_result = parse_str(input).unwrap();
             let read_result = parse_read(Cursor::new(input.as_bytes())).unwrap();
             assert_eq!(str_result, read_result);
+        }
+
+        #[test]
+        fn test_parse_read_preserves_parse_error() {
+            let result = parse_read(Cursor::new(b"\"unclosed"));
+            match result {
+                Err(ReadError::Parse(spanned)) => {
+                    assert_eq!(spanned.span.line, 1);
+                    assert_eq!(spanned.span.column_start, 1);
+                }
+                other => panic!("expected ReadError::Parse, got {:?}", other),
+            }
         }
     }
 }
