@@ -16,11 +16,7 @@ pub enum Error {
         found: &'static str,
     },
     /// Unexpected end of input.
-    UnexpectedEof {
-        expected: &'static str,
-    },
-    /// A trailing comma was found without a following element.
-    TrailingComma,
+    UnexpectedEof { expected: &'static str },
 }
 
 impl fmt::Display for Error {
@@ -35,9 +31,11 @@ impl fmt::Display for Error {
             Error::UnexpectedEof { expected } => {
                 write!(f, "unexpected end of input, expected {}", expected)
             }
-            Error::TrailingComma => write!(f, "trailing comma"),
         }
     }
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}

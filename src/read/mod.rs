@@ -5,18 +5,17 @@ use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use core::iter::Peekable;
-use core::str::CharIndices;
 
 use crate::error::Error;
 use crate::value::{Map, Number, Value};
 
 pub use span::{Span, Spanned};
 
-use lexer::CharReader;
+use lexer::{CharReader, CharReaderState, StrCharReader};
 
-/// The result of a single tokenization step: either a spanned token or a spanned error.
-pub type TokenResult = core::result::Result<Spanned<Token>, Spanned<Error>>;
+// ---------------------------------------------------------------------------
+// Token
+// ---------------------------------------------------------------------------
 
 /// A token produced by the Twic tokenizer.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,226 +45,126 @@ impl fmt::Display for Token {
     }
 }
 
-/// A trait for token readers that can be converted into a [`Value`].
-pub trait TokenRead: Iterator<Item = TokenResult> + Sized {
-    /// Consumes the token stream and produces a [`Value`].
-    fn into_value(self) -> core::result::Result<Value, Error>;
+// ---------------------------------------------------------------------------
+// Public API: parse_str / parse_read
+// ---------------------------------------------------------------------------
+
+/// Parses a Twic `&str` input into a [`Value`].
+pub fn parse_str(input: &str) -> Result<Value, Error> {
+    let reader = StrCharReader::new(input);
+    parse(reader)
 }
 
-/// A tokenizer that reads from a `&str` input.
-pub struct StrReader<'a> {
-    chars: Peekable<CharIndices<'a>>,
-    line: usize,
-    column: usize,
+/// Parses Twic input from a [`std::io::Read`] stream into a [`Value`].
+#[cfg(feature = "std")]
+pub fn parse_read<R: std::io::Read>(mut reader: R) -> std::io::Result<Value> {
+    let mut buf = String::new();
+    reader.read_to_string(&mut buf)?;
+    match parse_str(&buf) {
+        Ok(value) => Ok(value),
+        Err(e) => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
+    }
 }
 
-impl<'a> StrReader<'a> {
-    pub fn new(input: &'a str) -> Self {
+// ---------------------------------------------------------------------------
+// Internal: parse<R: CharReader>
+// ---------------------------------------------------------------------------
+
+fn parse<R: CharReader>(reader: R) -> Result<Value, Error> {
+    let mut parser = Parser::new(reader);
+    let value = parser.parse_value()?;
+    // Ensure no trailing tokens
+    if let Some(token) = parser.try_read_token()? {
+        return Err(Error::UnexpectedToken {
+            expected: "end of input",
+            found: token_name(&token),
+        });
+    }
+    Ok(value)
+}
+
+// ---------------------------------------------------------------------------
+// Parser<R: CharReader>
+// ---------------------------------------------------------------------------
+
+struct Parser<R: CharReader> {
+    state: CharReaderState<R>,
+    peeked: Option<Option<Result<Spanned<Token>, Spanned<Error>>>>,
+}
+
+impl<R: CharReader> Parser<R> {
+    fn new(reader: R) -> Self {
         Self {
-            chars: input.char_indices().peekable(),
-            line: 1,
-            column: 1,
+            state: CharReaderState::new(reader),
+            peeked: None,
         }
     }
-}
 
-impl<'a> CharReader for StrReader<'a> {
-    fn next_char(&mut self) -> Option<char> {
-        let (_, c) = self.chars.next()?;
-        if c == '\n' {
-            self.line += 1;
-            self.column = 1;
+    // -- Token reading methods --
+
+    /// Reads the next token. Returns `Ok(None)` at end of input.
+    fn try_read_token(&mut self) -> Result<Option<Token>, Error> {
+        let result = if let Some(peeked) = self.peeked.take() {
+            peeked
         } else {
-            self.column += 1;
-        }
-        Some(c)
-    }
-
-    fn peek_char(&mut self) -> Option<char> {
-        self.chars.peek().map(|&(_, c)| c)
-    }
-
-    fn current_line(&self) -> usize {
-        self.line
-    }
-
-    fn current_column(&self) -> usize {
-        self.column
-    }
-}
-
-impl<'a> Iterator for StrReader<'a> {
-    type Item = TokenResult;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        lexer::tokenize_next(self)
-    }
-}
-
-impl<'a> TokenRead for StrReader<'a> {
-    fn into_value(self) -> core::result::Result<Value, Error> {
-        let mut parser = Parser {
-            iter: self.peekable(),
+            lexer::tokenize_next(&mut self.state)
         };
-        let value = parser.parse_value()?;
-        // Ensure no trailing tokens
-        if let Some(token) = parser.next_token()? {
-            return Err(Error::UnexpectedToken {
-                expected: "end of input",
-                found: token_name(&token),
-            });
-        }
-        Ok(value)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// StdTokenReader (std feature)
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "std")]
-mod with_std {
-    use alloc::boxed::Box;
-    use alloc::string::String;
-
-    use crate::error::Error;
-    use crate::value::Value;
-
-    use super::lexer::CharReader;
-    use super::{TokenResult, TokenRead};
-
-    /// A tokenizer that reads from a `std::io::Read` stream.
-    ///
-    /// The entire input is buffered into memory. This avoids the unsound
-    /// self-referential pattern that would arise from storing a `Chars`
-    /// iterator alongside the owning `String`.
-    pub struct StdTokenReader<R: std::io::Read> {
-        buf: Box<str>,
-        pos: usize,
-        line: usize,
-        column: usize,
-        _reader: R,
-    }
-
-    impl<R: std::io::Read> StdTokenReader<R> {
-        pub fn new(mut reader: R) -> std::io::Result<Self> {
-            let mut buf = String::new();
-            reader.read_to_string(&mut buf)?;
-            Ok(Self {
-                buf: buf.into_boxed_str(),
-                pos: 0,
-                line: 1,
-                column: 1,
-                _reader: reader,
-            })
-        }
-    }
-
-    impl<R: std::io::Read> CharReader for StdTokenReader<R> {
-        fn next_char(&mut self) -> Option<char> {
-            let c = self.buf[self.pos..].chars().next()?;
-            self.pos += c.len_utf8();
-            if c == '\n' {
-                self.line += 1;
-                self.column = 1;
-            } else {
-                self.column += 1;
-            }
-            Some(c)
-        }
-
-        fn peek_char(&mut self) -> Option<char> {
-            self.buf[self.pos..].chars().next()
-        }
-
-        fn current_line(&self) -> usize {
-            self.line
-        }
-
-        fn current_column(&self) -> usize {
-            self.column
-        }
-    }
-
-    impl<R: std::io::Read> Iterator for StdTokenReader<R> {
-        type Item = TokenResult;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            super::lexer::tokenize_next(self)
-        }
-    }
-
-    impl<R: std::io::Read> TokenRead for StdTokenReader<R> {
-        fn into_value(self) -> core::result::Result<Value, Error> {
-            let mut parser = super::Parser {
-                iter: self.peekable(),
-            };
-            let value = parser.parse_value()?;
-            if let Some(token) = parser.next_token()? {
-                return Err(Error::UnexpectedToken {
-                    expected: "end of input",
-                    found: super::token_name(&token),
-                });
-            }
-            Ok(value)
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-pub use with_std::StdTokenReader;
-
-// ---------------------------------------------------------------------------
-// Recursive descent parser (into_value)
-// ---------------------------------------------------------------------------
-
-struct Parser<I: Iterator<Item = TokenResult>> {
-    iter: Peekable<I>,
-}
-
-impl<I: Iterator<Item = TokenResult>> Parser<I> {
-    fn next_token(&mut self) -> core::result::Result<Option<Token>, Error> {
-        match self.iter.next() {
+        match result {
             None => Ok(None),
-            Some(Err(e)) => Err(e.value),
             Some(Ok(spanned)) => Ok(Some(spanned.value)),
+            Some(Err(spanned)) => Err(spanned.value),
         }
     }
 
-    fn peek_token(&mut self) -> core::result::Result<Option<Token>, Error> {
-        match self.iter.peek() {
-            None => Ok(None),
-            Some(Ok(spanned)) => Ok(Some(spanned.value.clone())),
-            Some(Err(_)) => {
-                let item = self.iter.next();
-                match item {
-                    Some(Err(e)) => Err(e.value),
-                    _ => unreachable!(),
-                }
-            }
-        }
-    }
-
-    fn expect_token(&mut self, expected: &'static str) -> core::result::Result<Token, Error> {
-        match self.next_token()? {
-            Some(token) => Ok(token),
-            None => Err(Error::UnexpectedEof { expected }),
-        }
-    }
-
-    fn expect_semicolon(&mut self) -> core::result::Result<(), Error> {
-        match self.next_token()? {
-            Some(Token::SemiColon) => Ok(()),
-            Some(other) => Err(Error::UnexpectedToken {
-                expected: ";",
-                found: token_name(&other),
+    /// Reads the next token and validates it with a predicate.
+    /// Returns `Ok(None)` at end of input.
+    fn try_read_token_of(
+        &mut self,
+        pred: impl Fn(&Token) -> bool,
+        expected: &'static str,
+    ) -> Result<Option<Token>, Error> {
+        match self.try_read_token()? {
+            Some(token) if pred(&token) => Ok(Some(token)),
+            Some(token) => Err(Error::UnexpectedToken {
+                expected,
+                found: token_name(&token),
             }),
-            None => Err(Error::UnexpectedEof { expected: ";" }),
+            None => Ok(None),
         }
     }
 
-    fn parse_value(&mut self) -> core::result::Result<Value, Error> {
-        let token = self.expect_token("value")?;
+    /// Reads the next token. Returns error on end of input.
+    fn read_token(&mut self, expected: &'static str) -> Result<Token, Error> {
+        self.try_read_token()?.ok_or(Error::UnexpectedEof { expected })
+    }
+
+    /// Reads the next token and validates it with a predicate.
+    /// Returns error on end of input.
+    fn read_token_of(
+        &mut self,
+        pred: impl Fn(&Token) -> bool,
+        expected: &'static str,
+    ) -> Result<Token, Error> {
+        self.try_read_token_of(pred, expected)?
+            .ok_or(Error::UnexpectedEof { expected })
+    }
+
+    /// Peeks at the next token without consuming it.
+    fn peek_token(&mut self) -> Result<Option<&Token>, Error> {
+        if self.peeked.is_none() {
+            self.peeked = Some(lexer::tokenize_next(&mut self.state));
+        }
+        match self.peeked.as_ref().unwrap() {
+            None => Ok(None),
+            Some(Ok(spanned)) => Ok(Some(&spanned.value)),
+            Some(Err(spanned)) => Err(spanned.value.clone()),
+        }
+    }
+
+    // -- Parsing methods --
+
+    fn parse_value(&mut self) -> Result<Value, Error> {
+        let token = self.read_token("value")?;
 
         match token {
             Token::Null => Ok(Value::Null),
@@ -277,79 +176,66 @@ impl<I: Iterator<Item = TokenResult>> Parser<I> {
             Token::String(s) => {
                 match self.peek_token()? {
                     Some(Token::Colon) => {
-                        self.iter.next(); // consume the Colon
+                        self.try_read_token()?; // consume the Colon
                         self.parse_map_with_first_key(s)
                     }
                     _ => Ok(Value::String(s)),
                 }
             }
-
-            Token::Comma => Err(Error::TrailingComma),
+            Token::Comma => Err(Error::UnexpectedToken {
+                expected: "value",
+                found: ",",
+            }),
         }
     }
 
-    fn parse_vector(&mut self) -> core::result::Result<Value, Error> {
+    fn parse_vector(&mut self) -> Result<Value, Error> {
         let mut vec = Vec::new();
 
         if !matches!(self.peek_token()?, Some(Token::SemiColon)) {
             vec.push(self.parse_value()?);
             while matches!(self.peek_token()?, Some(Token::Comma)) {
-                self.iter.next(); // consume Comma
-                if matches!(self.peek_token()?, Some(Token::SemiColon)) {
-                    return Err(Error::TrailingComma);
-                }
+                self.try_read_token()?; // consume Comma
                 vec.push(self.parse_value()?);
             }
         }
 
-        self.expect_semicolon()?;
+        self.read_token_of(|t| matches!(t, Token::SemiColon), ";")?;
         Ok(Value::Vector(vec))
     }
 
-    fn parse_map_with_first_key(
-        &mut self,
-        first_key: String,
-    ) -> core::result::Result<Value, Error> {
+    fn parse_map_with_first_key(&mut self, first_key: String) -> Result<Value, Error> {
         let mut map = Map::new();
         let value = self.parse_value()?;
         map.insert(first_key, value);
 
         while matches!(self.peek_token()?, Some(Token::Comma)) {
-            self.iter.next(); // consume Comma
+            self.try_read_token()?; // consume Comma
 
-            if matches!(self.peek_token()?, Some(Token::SemiColon)) {
-                return Err(Error::TrailingComma);
-            }
-
-            let key_token = self.expect_token("string key")?;
+            let key_token = self.read_token("string key")?;
             let key = match key_token {
                 Token::String(s) => s,
                 other => {
                     return Err(Error::UnexpectedToken {
                         expected: "string key",
                         found: token_name(&other),
-                    })
+                    });
                 }
             };
 
-            match self.next_token()? {
-                Some(Token::Colon) => {}
-                Some(other) => {
-                    return Err(Error::UnexpectedToken {
-                        expected: ":",
-                        found: token_name(&other),
-                    })
-                }
-                None => return Err(Error::UnexpectedEof { expected: ":" }),
-            }
+            self.read_token_of(|t| matches!(t, Token::Colon), ":")?;
             let value = self.parse_value()?;
             map.insert(key, value);
         }
 
-        self.expect_semicolon()?;
+        self.read_token_of(|t| matches!(t, Token::SemiColon), ";")?;
         Ok(Value::Map(map))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn token_name(token: &Token) -> &'static str {
     match token {
@@ -364,8 +250,7 @@ fn token_name(token: &Token) -> &'static str {
     }
 }
 
-fn parse_number(text: &str) -> core::result::Result<Value, Error> {
-    // Special number keywords
+fn parse_number(text: &str) -> Result<Value, Error> {
     match text {
         "nan" => return Ok(Value::Number(Number::NaN)),
         "inf" | "+inf" => return Ok(Value::Number(Number::Inf { negative: false })),
@@ -373,7 +258,6 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
         _ => {}
     }
 
-    // Hexadecimal
     let text_no_sign = text.strip_prefix(['+', '-']).unwrap_or(text);
     let negative = text.starts_with('-');
 
@@ -408,26 +292,32 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::borrow::ToOwned;
     use alloc::vec;
+    use alloc::vec::Vec;
 
     use super::*;
     use crate::value::Number;
 
-    fn collect_tokens(input: &str) -> Vec<TokenResult> {
-        StrReader::new(input).collect()
+    fn parse(input: &str) -> Value {
+        parse_str(input).unwrap()
+    }
+
+    fn collect_tokens(input: &str) -> Vec<Result<Spanned<Token>, Spanned<Error>>> {
+        let reader = StrCharReader::new(input);
+        let mut state = CharReaderState::new(reader);
+        let mut tokens = Vec::new();
+        while let Some(result) = lexer::tokenize_next(&mut state) {
+            tokens.push(result);
+        }
+        tokens
     }
 
     fn tokens_ok(input: &str) -> Vec<Token> {
         collect_tokens(input)
             .into_iter()
             .map(|r| r.map(|s| s.value).map_err(|e| e.value))
-            .collect::<core::result::Result<Vec<Token>, Error>>()
+            .collect::<Result<Vec<Token>, Error>>()
             .unwrap()
-    }
-
-    fn parse(input: &str) -> Value {
-        StrReader::new(input).into_value().unwrap()
     }
 
     // --- Tokenizer tests ---
@@ -525,7 +415,9 @@ mod tests {
         let tokens = tokens_ok(r#""line1\nline2\ttab\\backslash\"quote\/slash""#);
         assert_eq!(
             tokens,
-            vec![Token::String("line1\nline2\ttab\\backslash\"quote/slash".into())]
+            vec![Token::String(
+                "line1\nline2\ttab\\backslash\"quote/slash".into()
+            )]
         );
     }
 
@@ -590,7 +482,7 @@ mod tests {
         assert_eq!(tokens[1].as_ref().unwrap().span.line, 2);
     }
 
-    // --- Parser (into_value) tests ---
+    // --- Parser tests ---
 
     #[test]
     fn test_parse_null() {
@@ -626,8 +518,6 @@ mod tests {
         let result = parse("-7");
         match result {
             Value::Number(Number::NegInt(n)) => {
-                // NegInt(n) represents -(u64::MAX - n + 1); for -7, n should be
-                // u64::MAX - 6, which is the same as (-7i64 as u64)
                 assert_eq!(n, (-7i64) as u64);
             }
             other => panic!("expected NegInt, got {:?}", other),
@@ -670,10 +560,7 @@ mod tests {
     fn test_parse_vector() {
         assert_eq!(
             parse(":a,b;"),
-            Value::Vector(vec![
-                Value::String("a".into()),
-                Value::String("b".into()),
-            ])
+            Value::Vector(vec![Value::String("a".into()), Value::String("b".into()),])
         );
     }
 
@@ -713,26 +600,50 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_trailing_comma_error() {
-        let result = StrReader::new(":a,;").into_value();
-        assert!(matches!(result, Err(Error::TrailingComma)));
+    fn test_parse_vector_comma_empty_map() {
+        // :1,; is a vector with 1 and an empty map, terminated by ;
+        assert_eq!(
+            parse(":1,;;"),
+            Value::Vector(vec![
+                Value::Number(Number::PosInt(1)),
+                Value::Map(Map::new()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_vector_nested_vectors() {
+        // ::1,2;,:3,4;; is a vector of two vectors
+        assert_eq!(
+            parse("::1,2;,:3,4;;"),
+            Value::Vector(vec![
+                Value::Vector(vec![
+                    Value::Number(Number::PosInt(1)),
+                    Value::Number(Number::PosInt(2)),
+                ]),
+                Value::Vector(vec![
+                    Value::Number(Number::PosInt(3)),
+                    Value::Number(Number::PosInt(4)),
+                ]),
+            ])
+        );
     }
 
     #[test]
     fn test_parse_missing_semicolon_error() {
-        let result = StrReader::new(":a,b").into_value();
+        let result = parse_str(":a,b");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_vector_non_semicolon_terminator() {
-        let result = StrReader::new(":a,b 0").into_value();
+        let result = parse_str(":a,b 0");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_unexpected_trailing_error() {
-        let result = StrReader::new("null;").into_value();
+        let result = parse_str("null;");
         assert!(result.is_err());
     }
 
@@ -775,10 +686,7 @@ mod tests {
         inner_map.insert("a".into(), Value::Number(Number::PosInt(1)));
         inner_map.insert(
             "b".into(),
-            Value::Vector(vec![
-                Value::String("x".into()),
-                Value::String("y".into()),
-            ]),
+            Value::Vector(vec![Value::String("x".into()), Value::String("y".into())]),
         );
         assert_eq!(result, Value::Vector(vec![Value::Map(inner_map)]));
     }
@@ -798,80 +706,41 @@ mod tests {
         assert_eq!(hex_result, Value::Number(Number::PosInt(0)));
     }
 
-    #[test]
-    fn test_map_trailing_comma_error() {
-        let result = StrReader::new("a:1,;").into_value();
-        assert!(matches!(result, Err(Error::TrailingComma)));
-    }
-
-    // --- StdTokenReader tests (std feature) ---
+    // --- parse_read tests (std feature) ---
 
     #[cfg(feature = "std")]
     mod std_tests {
         use super::*;
         use std::io::Cursor;
 
-        fn std_parse(input: &str) -> Value {
-            let cursor = Cursor::new(input.as_bytes());
-            StdTokenReader::new(cursor).unwrap().into_value().unwrap()
-        }
-
-        fn std_tokens(input: &str) -> Vec<Token> {
-            let cursor = Cursor::new(input.as_bytes());
-            StdTokenReader::new(cursor)
-                .unwrap()
-                .map(|r| r.map(|s| s.value).map_err(|e| e.value))
-                .collect::<core::result::Result<Vec<Token>, Error>>()
-                .unwrap()
+        #[test]
+        fn test_parse_read_null() {
+            let cursor = Cursor::new(b"null");
+            assert_eq!(parse_read(cursor).unwrap(), Value::Null);
         }
 
         #[test]
-        fn test_std_empty_input() {
-            let cursor = Cursor::new(b"");
-            let reader = StdTokenReader::new(cursor).unwrap();
-            let tokens: Vec<_> = reader.collect();
-            assert!(tokens.is_empty());
-        }
-
-        #[test]
-        fn test_std_token_parity_with_str_reader() {
-            let input = r#"name:twic,version:1,items::a,b;;"#;
-            let str_tokens = tokens_ok(input);
-            let std_tokens = std_tokens(input);
-            assert_eq!(str_tokens, std_tokens);
-        }
-
-        #[test]
-        fn test_std_parse_null() {
-            assert_eq!(std_parse("null"), Value::Null);
-        }
-
-        #[test]
-        fn test_std_parse_map() {
+        fn test_parse_read_map() {
+            let cursor = Cursor::new(b"msg:hello!,from:twic;");
             let mut expected = Map::new();
             expected.insert("msg".into(), Value::String("hello!".into()));
             expected.insert("from".into(), Value::String("twic".into()));
-            assert_eq!(std_parse("msg:hello!,from:twic;"), Value::Map(expected));
+            assert_eq!(parse_read(cursor).unwrap(), Value::Map(expected));
         }
 
         #[test]
-        fn test_std_span_tracking() {
-            let cursor = Cursor::new(b"hello world");
-            let tokens: Vec<_> = StdTokenReader::new(cursor).unwrap().collect();
-            let first = tokens[0].as_ref().unwrap();
-            assert_eq!(first.span.line, 1);
-            assert_eq!(first.span.column_start, 1);
-            assert_eq!(first.span.column_end, 6);
+        fn test_parse_read_empty() {
+            // Empty input is not valid Twic (needs at least one value)
+            let cursor = Cursor::new(b"");
+            assert!(parse_read(cursor).is_err());
         }
 
         #[test]
-        fn test_std_malformed_input() {
-            let cursor = Cursor::new(b"\"unclosed");
-            let tokens: Vec<_> = StdTokenReader::new(cursor).unwrap().collect();
-            assert!(matches!(
-                tokens[0],
-                Err(ref e) if e.value == Error::UnfinishedString
-            ));
+        fn test_parse_read_parity() {
+            let input = "name:twic,version:1,items::a,b;;";
+            let str_result = parse_str(input).unwrap();
+            let read_result = parse_read(Cursor::new(input.as_bytes())).unwrap();
+            assert_eq!(str_result, read_result);
         }
     }
 }

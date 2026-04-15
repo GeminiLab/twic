@@ -27,11 +27,7 @@ impl Span {
 
 impl fmt::Display for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}-{}",
-            self.line, self.column_start, self.column_end
-        )
+        write!(f, "{}:{}-{}", self.line, self.column_start, self.column_end)
     }
 }
 
@@ -50,6 +46,10 @@ impl<T> Spanned<T> {
 
 impl<T: fmt::Display> fmt::Display for Spanned<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} @ {}:{}", self.value, self.span.line, self.span.column_start)
+        write!(
+            f,
+            "{} @ {}:{}",
+            self.value, self.span.line, self.span.column_start
+        )
     }
 }
