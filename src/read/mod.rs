@@ -380,7 +380,7 @@ fn parse_number(text: &str) -> core::result::Result<Value, Error> {
     if let Some(hex_str) = text_no_sign.strip_prefix("0x") {
         let val = u64::from_str_radix(hex_str, 16)
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
-        if negative {
+        if negative && val != 0 {
             Ok(Value::Number(Number::NegInt(val.wrapping_neg())))
         } else {
             Ok(Value::Number(Number::PosInt(val)))
@@ -788,6 +788,14 @@ mod tests {
         let hex_result = parse("-0x1");
         let dec_result = parse("-1");
         assert_eq!(hex_result, dec_result);
+    }
+
+    #[test]
+    fn test_negative_zero_hex_matches_decimal() {
+        let hex_result = parse("-0x0");
+        let dec_result = parse("-0");
+        assert_eq!(hex_result, dec_result);
+        assert_eq!(hex_result, Value::Number(Number::PosInt(0)));
     }
 
     #[test]
