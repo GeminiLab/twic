@@ -60,7 +60,8 @@ Twic supports 6 data types (same as JSON): null, boolean, number, string, vector
 - NaNs (`nan`) and infinities (`inf`, `+inf`, `-inf`) are supported with case-sensitive keywords.
 - Signs `+` and `-` can be used for positive and negative numbers respectively.
 - Leading zeros are allowed in decimal integers.
-- Hexadecimal integers are supported with a case-sensitive `0x` prefix. Leading zeros are allowed in hexadecimal integers. Uppercase and lowercase `A-F`s are both allowed.
+- Leading zeros are allowed in the integer and exponent parts of floating-point numbers.
+- Hexadecimal integers are supported with a case-sensitive `0x` prefix. Leading zeros after the `0x` prefix are allowed in hexadecimal integers. Uppercase and lowercase `A-F`s are both allowed.
 - Leading or trailing decimal points are not allowed in floating-point numbers.
 
 ### String
