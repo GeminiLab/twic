@@ -123,7 +123,7 @@ The implementation includes a `Span` struct (line, column range, 1-based) and `S
 
 ### Allowed Choices
 
-- Can use: `alloc` crate (`String`, `Vec`, `BTreeMap`), `Peekable<CharIndices<'_>>` for `StrReader`'s `CharReader`, `core::char::from_u32` for escape decoding, internal buffering for `StdTokenReader`'s `CharReader`
+- Can use: `alloc` crate (`String`, `Vec`, `BTreeMap`), `core::str::Chars<'_>` for `StrCharReader`, `core::char::from_u32` for escape decoding, internal buffering for `StdTokenReader`'s `CharReader`
 - Can use: a private `CharReader` trait in the internal tokenizer module, with `StrReader` and `StdTokenReader` each providing their own implementation
 - Can use: a generic `Spanned<T>` wrapper struct or embedding span data directly into Token/Error variants
 - Cannot use: external dependencies (zero-dependency constraint)
@@ -147,18 +147,18 @@ struct Spanned<T> { value: T, span: Span }
 
 The tokenizer produces `Result<Spanned<Token>, Spanned<Error>>` — both successful tokens and errors carry position information. The `into_value` parser can optionally use span info for better error messages.
 
-**CharReader Abstraction**: The internal tokenizer module defines a private `CharReader` trait that abstracts character-level access with position tracking:
+**CharReader Abstraction**: The internal tokenizer module defines a private `CharReader` trait for character-level access, and a `CharReaderState<R: CharReader>` wrapper that adds peek and line/column tracking:
 
 ```
 trait CharReader {
-    fn next_char(&mut self) -> Option<Result<char, Error>>;
-    fn peek_char(&mut self) -> Option<Result<char, Error>>;
-    fn current_line(&self) -> usize;
-    fn current_column(&self) -> usize;
+    fn next_char(&mut self) -> Option<char>;
 }
+
+struct CharReaderState<R: CharReader> { ... }
+// provides: next_char, peek_char, skip_whitespace, current_line, current_column
 ```
 
-`StrReader` provides a `CharReader` implementation backed by `Peekable<CharIndices<'_>>` on a `&str`. `StdTokenReader` provides its own `CharReader` implementation backed by `std::io::Read` with internal buffering. Both readers feed characters into the same shared state machine.
+`StrCharReader` implements `CharReader` backed by `Chars<'_>` on a `&str`. `CharReaderState` wraps any `CharReader` and provides peeking and position tracking. The tokenizer operates on `CharReaderState<R>`.
 
 **Internal Tokenizer State Machine**: The core tokenizer operates on any `CharReader` implementation, reading characters one at a time and producing `Result<Spanned<Token>, Spanned<Error>>` values. The key states are:
 
@@ -312,6 +312,55 @@ Each task must include exactly one routing tag:
 ## Pending User Decisions
 
 None. All design decisions were resolved during planning and refinement.
+
+## Code Quality Review Criteria (MANDATORY for Codex reviewer)
+
+The Codex reviewer MUST check ALL of the following during every review round. Any violation is a finding. There is no "non-blocking" category — every finding must be fixed before COMPLETE.
+
+### CQ-1: No Dead Code
+- Every `pub`/`pub(crate)` item must be used by at least one call site (test or production code).
+- Every `#[allow(dead_code)]` annotation must have a comment explaining why the code is intentionally kept.
+- Private items that are genuinely unused must be removed.
+- Zero compiler warnings allowed (`cargo test` must produce 0 warnings).
+
+### CQ-2: No Duplicate Logic
+- If two code paths do the same thing, extract a shared helper. Do NOT copy-paste logic.
+- If a helper exists for a purpose, use it. Do NOT reimplement its logic inline.
+- Trait default methods must be actually used, or the method must not exist.
+- Every `match` arm pattern that duplicates another must be scrutinized.
+
+### CQ-3: Minimal Type Complexity
+- No `Option<Option<...>>`, no `Option<Result<...>>`, no nested wrappers beyond one level.
+- If a type signature requires a comment to explain its nesting, it is too complex.
+- State fields should store the simplest representation that supports all operations.
+
+### CQ-4: No Unnecessary Abstraction
+- Do not introduce traits, structs, or type parameters that are not needed by the current implementation.
+- Every generic parameter must have at least two concrete realizations (or a clear, documented future plan).
+- Do not wrap types unnecessarily — if `X` and `Wrapper<X>` have the same API surface, remove the wrapper.
+
+### CQ-5: Correctness Over Cleverness
+- Code must be obviously correct. If a reviewer has to reason about wrapping arithmetic, bit manipulation, or unsafe casts, the code needs a comment or a simpler approach.
+- Number encoding edge cases (`-0`, `u64::MAX`, `i64::MIN`, `0x8000000000000000`) must be explicitly tested.
+- Parse/encode round-trips must be verified by tests.
+
+### CQ-6: API Consistency
+- All public functions must have consistent error types. If `fn A()` returns `Result<T, E>` and `fn B()` wraps `A()` but returns `Result<T, OtherE>`, the relationship must be documented.
+- Public types must be constructable and usable without reaching into internal modules.
+- `Display` implementations must show all meaningful fields — do not silently drop data.
+
+### CQ-7: Spec Compliance
+- The implementation must match the formal specification in README.md exactly.
+- Every production rule in the BNF grammar must be exercised by at least one test.
+- Any deviation from the spec (e.g., accepting inputs the spec forbids, or rejecting inputs the spec allows) is a bug.
+
+### Review Severity Scale
+- **[P0]**: Crash, data corruption, security vulnerability, soundness bug
+- **[P1]**: Incorrect behavior (wrong parse result, wrong span, spec violation)
+- **[P2]**: Dead code, duplicate logic, unnecessary complexity, missing edge case test
+- **[P3]**: Style inconsistency, unclear naming, missing documentation on non-obvious logic
+
+All P0-P2 findings must be fixed. P3 findings should be fixed but are not blocking if justified.
 
 ## Implementation Notes
 
