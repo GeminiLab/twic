@@ -244,7 +244,21 @@ impl<I: Iterator<Item = TokenResult>> Parser<I> {
     }
 
     fn expect_token(&mut self, expected: &'static str) -> core::result::Result<Token, Error> {
-        self.next_token()?.ok_or(Error::UnexpectedEof { expected })
+        match self.next_token()? {
+            Some(token) => Ok(token),
+            None => Err(Error::UnexpectedEof { expected }),
+        }
+    }
+
+    fn expect_semicolon(&mut self) -> core::result::Result<(), Error> {
+        match self.next_token()? {
+            Some(Token::SemiColon) => Ok(()),
+            Some(other) => Err(Error::UnexpectedToken {
+                expected: ";",
+                found: token_name(&other),
+            }),
+            None => Err(Error::UnexpectedEof { expected: ";" }),
+        }
     }
 
     fn parse_value(&mut self) -> core::result::Result<Value, Error> {
@@ -285,7 +299,7 @@ impl<I: Iterator<Item = TokenResult>> Parser<I> {
             }
         }
 
-        self.expect_token(";")?;
+        self.expect_semicolon()?;
         Ok(Value::Vector(vec))
     }
 
@@ -311,12 +325,21 @@ impl<I: Iterator<Item = TokenResult>> Parser<I> {
                 }
             };
 
-            self.expect_token(":")?;
+            match self.next_token()? {
+                Some(Token::Colon) => {}
+                Some(other) => {
+                    return Err(Error::UnexpectedToken {
+                        expected: ":",
+                        found: token_name(&other),
+                    })
+                }
+                None => return Err(Error::UnexpectedEof { expected: ":" }),
+            }
             let value = self.parse_value()?;
             map.insert(key, value);
         }
 
-        self.expect_token(";")?;
+        self.expect_semicolon()?;
         Ok(Value::Map(map))
     }
 }
@@ -687,6 +710,12 @@ mod tests {
     #[test]
     fn test_parse_missing_semicolon_error() {
         let result = StrReader::new(":a,b").into_value();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_a() {
+        let result = StrReader::new(":a,b 0").into_value();
         assert!(result.is_err());
     }
 
