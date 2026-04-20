@@ -1,4 +1,5 @@
 use core::fmt;
+use core::error::Error;
 
 /// Source position: line number and character column range, both 1-based.
 ///
@@ -65,5 +66,18 @@ impl<T: fmt::Display> fmt::Display for Spanned<T> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::error::Error> std::error::Error for Spanned<T> {}
+impl<T: Error> Error for Spanned<T> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Error::source(&self.value)
+    }
+
+    fn description(&self) -> &str {
+        #[expect(deprecated)]
+        Error::description(&self.value)
+    }
+
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        #[expect(deprecated)]
+        Error::cause(&self.value)
+    }
+}
