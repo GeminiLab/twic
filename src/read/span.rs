@@ -67,7 +67,7 @@ impl<T: fmt::Display> fmt::Display for Spanned<T> {
 }
 
 impl<T: Error> Error for Spanned<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         Error::source(&self.value)
     }
 
@@ -76,7 +76,7 @@ impl<T: Error> Error for Spanned<T> {
         Error::description(&self.value)
     }
 
-    fn cause(&self) -> Option<&dyn std::error::Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         #[expect(deprecated)]
         Error::cause(&self.value)
     }
