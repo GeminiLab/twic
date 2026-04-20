@@ -1,5 +1,12 @@
 # Twic Tokenizer and Test Implementation
 
+
+CMT: All 3 issues fixed in prior rounds. Additional issues found and fixed:
+- Removed unused `error::Result` type alias (dead code)
+- `parse_read` now uses `?` consistently with `From` impls
+- Reused `text_no_sign` in `parse_number` positive decimal path
+ENDCMT
+
 ## Goal Description
 
 Implement a complete tokenizer (state machine) and recursive descent parser (`TokenRead::into_value`) for the Twic data serialization format in the `twic-new` Rust crate. This includes: expanding the `Token` enum to carry complete data with span information, adding proper error types with span information, creating a generic internal tokenizer module shared by `StrReader` and `StdTokenReader`, implementing `TokenRead::into_value`, and generating comprehensive test cases that verify all Twic types against their expected `Value` representations.
@@ -330,9 +337,11 @@ The Codex reviewer MUST check ALL of the following during every review round. An
 - Every `match` arm pattern that duplicates another must be scrutinized.
 
 ### CQ-3: Minimal Type Complexity
-- No `Option<Option<...>>`, no `Option<Result<...>>`, no nested wrappers beyond one level.
+- No unnecessary nested wrappers: `Option<Option<...>>` and `Option<Result<...>>` are only acceptable when actually peeking an `Option` or `Result` value, respectively (e.g., a peek cache). The key distinction is whether an error must be returned early — if so, it should not be wrapped in an extra `Option`.
 - If a type signature requires a comment to explain its nesting, it is too complex.
 - State fields should store the simplest representation that supports all operations.
+
+CMT: Incorporated into CQ-3 above. ENDCMT
 
 ### CQ-4: No Unnecessary Abstraction
 - Do not introduce traits, structs, or type parameters that are not needed by the current implementation.

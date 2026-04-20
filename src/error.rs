@@ -35,7 +35,5 @@ impl fmt::Display for Error {
     }
 }
 
-pub type Result<T> = core::result::Result<T, Error>;
-
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}

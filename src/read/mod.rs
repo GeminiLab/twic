@@ -64,7 +64,7 @@ pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
 pub fn parse_read<R: std::io::Read>(mut reader: R) -> Result<Value, ReadError> {
     let mut buf = String::new();
     reader.read_to_string(&mut buf)?;
-    parse_str(&buf).map_err(ReadError::Parse)
+    Ok(parse_str(&buf)?)
 }
 
 /// Error type for [`parse_read`].
@@ -359,8 +359,7 @@ fn parse_number(text: &str) -> Result<Value, Error> {
             Ok(Value::Number(Number::PosInt(0)))
         }
     } else {
-        let text_unsigned = text.strip_prefix('+').unwrap_or(text);
-        let val: u64 = text_unsigned
+        let val: u64 = text_no_sign
             .parse()
             .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
         Ok(Value::Number(Number::PosInt(val)))
