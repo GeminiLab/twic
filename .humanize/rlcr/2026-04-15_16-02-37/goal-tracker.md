@@ -50,11 +50,12 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | Round | Change | Reason | Impact on AC |
 |-------|--------|--------|--------------|
 | 0 | Initialized with strict CQ review criteria | User requested very strict Codex reviewer | All CQ |
+| 1 | Fixed 6 P2 CQ violations from Codex review | Codex found violations in CQ-2,3,4,5,6 | CQ-2..6 |
 
 #### Active Tasks
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| Self-review against CQ-1 through CQ-7 | CQ-1..7 | in_progress | coding | claude | Audit existing code for violations |
+| Fix 6 P2 CQ violations from Codex review | CQ-2..6 | completed | coding | claude | Codex strict review findings |
 
 ### Completed and Verified
 | AC | Task | Completed Round | Verified Round | Evidence |
@@ -63,6 +64,8 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | CQ-1 | StrCharReader: Chars not CharIndices | Prior loop R6 | - | No dead code |
 | CQ-2 | skip_whitespace replaces manual loop | Prior loop R6 | - | No duplicate logic |
 | CQ-3 | peeked simplified to Option<Spanned<Token>> | Prior loop R6 | - | No nested wrappers |
+| CQ-2..6 | Fixed 6 P2 violations: Option<Option>, tokenize_next return type, hex dedup, docs | R1 | R1 | Codex strict review |
+| CQ-6 | parse_read returns ReadError preserving Spanned<Error> + From impls | R1 | R1 | Codex feedback on API consistency |
 
 ### Explicitly Deferred
 | Task | Original AC | Deferred Since | Justification | When to Reconsider |
