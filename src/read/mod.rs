@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::error::Error;
+use crate::error::ParseError;
 use crate::value::{Map, Number, Value};
 
 pub use span::{Span, Spanned};
@@ -50,7 +50,7 @@ impl fmt::Display for Token {
 // ---------------------------------------------------------------------------
 
 /// Parses a Twic `&str` input into a [`Value`].
-pub fn parse_str(input: &str) -> Result<Value, Spanned<Error>> {
+pub fn parse_str(input: &str) -> Result<Value, Spanned<ParseError>> {
     let reader = StrCharReader::new(input);
     parse(reader)
 }
@@ -77,7 +77,7 @@ pub enum ReadError {
     /// An I/O error occurred while reading from the stream.
     Io(std::io::Error),
     /// A parse error occurred with span information.
-    Parse(Spanned<Error>),
+    Parse(Spanned<ParseError>),
 }
 
 #[cfg(feature = "std")]
@@ -108,8 +108,8 @@ impl From<std::io::Error> for ReadError {
 }
 
 #[cfg(feature = "std")]
-impl From<Spanned<Error>> for ReadError {
-    fn from(e: Spanned<Error>) -> Self {
+impl From<Spanned<ParseError>> for ReadError {
+    fn from(e: Spanned<ParseError>) -> Self {
         ReadError::Parse(e)
     }
 }
@@ -118,13 +118,13 @@ impl From<Spanned<Error>> for ReadError {
 // Internal: parse<R: CharReader>
 // ---------------------------------------------------------------------------
 
-fn parse<R: CharReader>(reader: R) -> Result<Value, Spanned<Error>> {
+fn parse<R: CharReader>(reader: R) -> Result<Value, Spanned<ParseError>> {
     let mut parser = Parser::new(reader);
     let value = parser.parse_value()?;
     // Ensure no trailing tokens
     if let Some(spanned) = parser.try_read_token()? {
         return Err(Spanned::new(
-            Error::UnexpectedToken {
+            ParseError::UnexpectedToken {
                 expected: "end of input",
                 found: token_name(&spanned.value),
             },
@@ -164,7 +164,7 @@ impl<R: CharReader> Parser<R> {
     // -- Token reading methods --
 
     /// Reads the next token. Returns `Ok(None)` at end of input.
-    fn try_read_token(&mut self) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
+    fn try_read_token(&mut self) -> Result<Option<Spanned<Token>>, Spanned<ParseError>> {
         if let Some(spanned) = self.peeked.take() {
             return Ok(Some(spanned));
         }
@@ -177,11 +177,11 @@ impl<R: CharReader> Parser<R> {
         &mut self,
         pred: impl Fn(&Token) -> bool,
         expected: &'static str,
-    ) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
+    ) -> Result<Option<Spanned<Token>>, Spanned<ParseError>> {
         match self.try_read_token()? {
             Some(spanned) if pred(&spanned.value) => Ok(Some(spanned)),
             Some(spanned) => Err(Spanned::new(
-                Error::UnexpectedToken {
+                ParseError::UnexpectedToken {
                     expected,
                     found: token_name(&spanned.value),
                 },
@@ -192,9 +192,9 @@ impl<R: CharReader> Parser<R> {
     }
 
     /// Reads the next token. Returns error on end of input.
-    fn read_token(&mut self, expected: &'static str) -> Result<Spanned<Token>, Spanned<Error>> {
+    fn read_token(&mut self, expected: &'static str) -> Result<Spanned<Token>, Spanned<ParseError>> {
         self.try_read_token()?
-            .ok_or(Spanned::new(Error::UnexpectedEof { expected }, self.current_span()))
+            .ok_or(Spanned::new(ParseError::UnexpectedEof { expected }, self.current_span()))
     }
 
     /// Reads the next token and validates it with a predicate.
@@ -203,13 +203,13 @@ impl<R: CharReader> Parser<R> {
         &mut self,
         pred: impl Fn(&Token) -> bool,
         expected: &'static str,
-    ) -> Result<Spanned<Token>, Spanned<Error>> {
+    ) -> Result<Spanned<Token>, Spanned<ParseError>> {
         self.try_read_token_of(pred, expected)?
-            .ok_or(Spanned::new(Error::UnexpectedEof { expected }, self.current_span()))
+            .ok_or(Spanned::new(ParseError::UnexpectedEof { expected }, self.current_span()))
     }
 
     /// Peeks at the next token without consuming it.
-    fn peek_token(&mut self) -> Result<Option<Token>, Spanned<Error>> {
+    fn peek_token(&mut self) -> Result<Option<Token>, Spanned<ParseError>> {
         if let Some(ref spanned) = self.peeked {
             return Ok(Some(spanned.value.clone()));
         }
@@ -225,7 +225,7 @@ impl<R: CharReader> Parser<R> {
 
     // -- Parsing methods --
 
-    fn parse_value(&mut self) -> Result<Value, Spanned<Error>> {
+    fn parse_value(&mut self) -> Result<Value, Spanned<ParseError>> {
         let spanned = self.read_token("value")?;
 
         match spanned.value {
@@ -245,7 +245,7 @@ impl<R: CharReader> Parser<R> {
                 }
             }
             Token::Comma => Err(Spanned::new(
-                Error::UnexpectedToken {
+                ParseError::UnexpectedToken {
                     expected: "value",
                     found: ",",
                 },
@@ -254,7 +254,7 @@ impl<R: CharReader> Parser<R> {
         }
     }
 
-    fn parse_vector(&mut self) -> Result<Value, Spanned<Error>> {
+    fn parse_vector(&mut self) -> Result<Value, Spanned<ParseError>> {
         let mut vec = Vec::new();
 
         if !matches!(self.peek_token()?, Some(Token::SemiColon)) {
@@ -269,7 +269,7 @@ impl<R: CharReader> Parser<R> {
         Ok(Value::Vector(vec))
     }
 
-    fn parse_map_with_first_key(&mut self, first_key: String) -> Result<Value, Spanned<Error>> {
+    fn parse_map_with_first_key(&mut self, first_key: String) -> Result<Value, Spanned<ParseError>> {
         let mut map = Map::new();
         let value = self.parse_value()?;
         map.insert(first_key, value);
@@ -282,7 +282,7 @@ impl<R: CharReader> Parser<R> {
                 Token::String(s) => s,
                 other => {
                     return Err(Spanned::new(
-                        Error::UnexpectedToken {
+                        ParseError::UnexpectedToken {
                             expected: "string key",
                             found: token_name(&other),
                         },
@@ -318,7 +318,7 @@ fn token_name(token: &Token) -> &'static str {
     }
 }
 
-fn parse_number(text: &str) -> Result<Value, Error> {
+fn parse_number(text: &str) -> Result<Value, ParseError> {
     match text {
         "nan" => return Ok(Value::Number(Number::NaN)),
         "inf" | "+inf" => return Ok(Value::Number(Number::Inf { negative: false })),
@@ -331,10 +331,10 @@ fn parse_number(text: &str) -> Result<Value, Error> {
 
     if let Some(hex_str) = text_no_sign.strip_prefix("0x") {
         let val = u64::from_str_radix(hex_str, 16)
-            .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
+            .map_err(|_| ParseError::InvalidNumber(text.to_owned()))?;
         if negative && val != 0 {
             if val > i64::MIN.unsigned_abs() {
-                return Err(Error::InvalidNumber(text.to_owned()));
+                return Err(ParseError::InvalidNumber(text.to_owned()));
             }
             // NegInt stores the bit pattern: NegInt(n) represents -(u64::MAX - n + 1).
             // For example, NegInt(u64::MAX) == -1. wrapping_neg on u64 gives the correct
@@ -346,12 +346,12 @@ fn parse_number(text: &str) -> Result<Value, Error> {
     } else if text.contains('.') || text.contains('e') || text.contains('E') {
         let val: f64 = text
             .parse()
-            .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
+            .map_err(|_| ParseError::InvalidNumber(text.to_owned()))?;
         Ok(Value::Number(Number::Float(val)))
     } else if text.starts_with('-') {
         let val: i64 = text
             .parse()
-            .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
+            .map_err(|_| ParseError::InvalidNumber(text.to_owned()))?;
         if val < 0 {
             Ok(Value::Number(Number::NegInt(val as u64)))
         } else {
@@ -361,7 +361,7 @@ fn parse_number(text: &str) -> Result<Value, Error> {
     } else {
         let val: u64 = text_no_sign
             .parse()
-            .map_err(|_| Error::InvalidNumber(text.to_owned()))?;
+            .map_err(|_| ParseError::InvalidNumber(text.to_owned()))?;
         Ok(Value::Number(Number::PosInt(val)))
     }
 }
@@ -382,7 +382,7 @@ mod tests {
         parse_str(input).unwrap()
     }
 
-    fn collect_tokens(input: &str) -> Vec<Result<Spanned<Token>, Spanned<Error>>> {
+    fn collect_tokens(input: &str) -> Vec<Result<Spanned<Token>, Spanned<ParseError>>> {
         let reader = StrCharReader::new(input);
         let mut state = CharReaderState::new(reader);
         let mut tokens = Vec::new();
@@ -400,7 +400,7 @@ mod tests {
         collect_tokens(input)
             .into_iter()
             .map(|r| r.map(|s| s.value).map_err(|e| e.value))
-            .collect::<Result<Vec<Token>, Error>>()
+            .collect::<Result<Vec<Token>, ParseError>>()
             .unwrap()
     }
 
@@ -528,7 +528,7 @@ mod tests {
         let results = collect_tokens(r#""unclosed"#);
         assert!(matches!(
             results[0],
-            Err(ref e) if e.value == Error::UnfinishedString
+            Err(ref e) if e.value == ParseError::UnfinishedString
         ));
     }
 
@@ -537,7 +537,7 @@ mod tests {
         let results = collect_tokens(r#""\q""#);
         assert!(matches!(
             results[0],
-            Err(ref e) if e.value == Error::InvalidEscape
+            Err(ref e) if e.value == ParseError::InvalidEscape
         ));
     }
 
@@ -546,7 +546,7 @@ mod tests {
         let results = collect_tokens(r#""\x1""#);
         assert!(matches!(
             results[0],
-            Err(ref e) if e.value == Error::InvalidEscape
+            Err(ref e) if e.value == ParseError::InvalidEscape
         ));
     }
 
@@ -562,6 +562,22 @@ mod tests {
     #[test]
     fn test_span_multiline() {
         let tokens = collect_tokens("a\nb");
+        assert_eq!(tokens[0].as_ref().unwrap().span.line, 1);
+        assert_eq!(tokens[1].as_ref().unwrap().span.line, 2);
+    }
+
+    #[test]
+    fn test_span_cr_lf() {
+        // \r\n should count as one line break, not two
+        let tokens = collect_tokens("a\r\nb");
+        assert_eq!(tokens[0].as_ref().unwrap().span.line, 1);
+        assert_eq!(tokens[1].as_ref().unwrap().span.line, 2);
+    }
+
+    #[test]
+    fn test_span_cr_only() {
+        // standalone \r should count as a line break
+        let tokens = collect_tokens("a\rb");
         assert_eq!(tokens[0].as_ref().unwrap().span.line, 1);
         assert_eq!(tokens[1].as_ref().unwrap().span.line, 2);
     }

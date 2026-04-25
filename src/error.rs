@@ -1,9 +1,10 @@
 use alloc::string::String;
+use core::error::Error;
 use core::fmt;
 
 /// Errors that can occur during tokenization or parsing of Twic input.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Error {
+pub enum ParseError {
     /// A quoted string was not closed before end of input.
     UnfinishedString,
     /// An invalid escape sequence was encountered in a quoted string.
@@ -19,21 +20,20 @@ pub enum Error {
     UnexpectedEof { expected: &'static str },
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::UnfinishedString => write!(f, "unfinished string"),
-            Error::InvalidEscape => write!(f, "invalid escape sequence"),
-            Error::InvalidNumber(s) => write!(f, "invalid number: {}", s),
-            Error::UnexpectedToken { expected, found } => {
+            ParseError::UnfinishedString => write!(f, "unfinished string"),
+            ParseError::InvalidEscape => write!(f, "invalid escape sequence"),
+            ParseError::InvalidNumber(s) => write!(f, "invalid number: {}", s),
+            ParseError::UnexpectedToken { expected, found } => {
                 write!(f, "expected {}, found {}", expected, found)
             }
-            Error::UnexpectedEof { expected } => {
+            ParseError::UnexpectedEof { expected } => {
                 write!(f, "unexpected end of input, expected {}", expected)
             }
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+impl Error for ParseError {}

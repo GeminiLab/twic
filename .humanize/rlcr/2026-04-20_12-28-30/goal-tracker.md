@@ -50,11 +50,13 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | Round | Change | Reason | Impact on AC |
 |-------|--------|--------|--------------|
 | 0 | Initialized from prior loop state | New RLCR loop started | All AC |
+| 0 | Renamed Error to ParseError, unconditional core::error::Error impl | Codex R0 review: no_std trait gap | CQ-6 |
+| 0 | Added \r/\r\n line break handling in span tracking | Codex R0 review: span correctness | CQ-5 |
 
 #### Active Tasks
 | Task | Target AC | Status | Tag | Owner | Notes |
 |------|-----------|--------|-----|-------|-------|
-| Self-review against CQ-1 through CQ-7 | CQ-1..7 | completed | coding | claude | Fixed no_std build regression in span.rs |
+| Self-review against CQ-1 through CQ-7 | CQ-1..7 | completed | coding | claude | Fixed 3 issues: no_std Error trait, ParseError rename, CRLF spans |
 
 ### Completed and Verified
 | AC | Task | Completed Round | Verified Round | Evidence |
@@ -68,6 +70,8 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | CQ-5 | NegInt encoding documented | Prior loop R1 | - | Comment on wrapping_neg |
 | CQ-4 | CharReader trait impls documented | Prior loop R1 | - | Doc comment |
 | CQ-1 | Fixed dyn std::error::Error in span.rs for no_std | R0 | - | Changed to dyn Error (core::error::Error) |
+| CQ-6 | Renamed Error to ParseError, unconditional core::error::Error | R0 | - | no_std trait impl for ParseError |
+| CQ-5 | Added \r/\r\n line break handling with last_was_cr | R0 | - | Correct span tracking for CRLF/CR |
 
 ### Explicitly Deferred
 | Task | Original AC | Deferred Since | Justification | When to Reconsider |

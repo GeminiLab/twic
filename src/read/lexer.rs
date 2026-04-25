@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use crate::error::Error;
+use crate::error::ParseError;
 
 use super::span::{Span, Spanned};
 use super::Token;
@@ -35,6 +35,9 @@ pub(crate) struct CharReaderState<R: CharReader> {
     has_peeked: bool,
     line: usize,
     column: usize,
+    /// True when the previous character was `\r`, so a following `\n` is part
+    /// of the same line break and should not increment the line counter again.
+    last_was_cr: bool,
 }
 
 impl<R: CharReader> CharReaderState<R> {
@@ -45,6 +48,7 @@ impl<R: CharReader> CharReaderState<R> {
             has_peeked: false,
             line: 1,
             column: 1,
+            last_was_cr: false,
         }
     }
 
@@ -73,14 +77,6 @@ impl<R: CharReader> CharReaderState<R> {
         self.column
     }
 
-    fn advance_line_col(&mut self, c: char) {
-        if c == '\n' {
-            self.line += 1;
-            self.column = 1;
-        } else {
-            self.column += 1;
-        }
-    }
 }
 
 impl<R: CharReader> CharReader for CharReaderState<R> {
@@ -92,7 +88,26 @@ impl<R: CharReader> CharReader for CharReaderState<R> {
             self.reader.next_char()
         };
         if let Some(c) = c {
-            self.advance_line_col(c);
+            match c {
+                '\r' => {
+                    self.line += 1;
+                    self.column = 1;
+                    self.last_was_cr = true;
+                }
+                '\n' if self.last_was_cr => {
+                    // \r\n: the \r already incremented the line
+                    self.last_was_cr = false;
+                }
+                '\n' | '\u{2028}' | '\u{2029}' => {
+                    self.line += 1;
+                    self.column = 1;
+                    self.last_was_cr = false;
+                }
+                _ => {
+                    self.column += 1;
+                    self.last_was_cr = false;
+                }
+            }
         }
         c
     }
@@ -131,7 +146,7 @@ impl<'a> CharReader for StrCharReader<'a> {
 /// `Ok(Some(Spanned<Token>))`. On failure, returns `Err(Spanned<Error>)`.
 pub(crate) fn tokenize_next<R: CharReader>(
     state: &mut CharReaderState<R>,
-) -> Result<Option<Spanned<Token>>, Spanned<Error>> {
+) -> Result<Option<Spanned<Token>>, Spanned<ParseError>> {
     state.skip_whitespace();
 
     // Position is now at the first character of the token
@@ -163,15 +178,15 @@ pub(crate) fn tokenize_next<R: CharReader>(
 
 fn read_quoted_string<R: CharReader>(
     state: &mut CharReaderState<R>,
-) -> Result<Token, Error> {
+) -> Result<Token, ParseError> {
     let mut result = String::new();
 
     loop {
         match state.next_char() {
-            None => return Err(Error::UnfinishedString),
+            None => return Err(ParseError::UnfinishedString),
             Some('"') => break,
             Some('\\') => {
-                let c = state.next_char().ok_or(Error::UnfinishedString)?;
+                let c = state.next_char().ok_or(ParseError::UnfinishedString)?;
                 match c {
                     '"' => result.push('"'),
                     '\\' => result.push('\\'),
@@ -183,10 +198,10 @@ fn read_quoted_string<R: CharReader>(
                     't' => result.push('\t'),
                     'x' => {
                         let hex = read_hex_digits(state, 2)?;
-                        result.push(core::char::from_u32(hex).ok_or(Error::InvalidEscape)?);
+                        result.push(core::char::from_u32(hex).ok_or(ParseError::InvalidEscape)?);
                     }
                     'u' => {
-                        let pc = state.peek_char().ok_or(Error::UnfinishedString)?;
+                        let pc = state.peek_char().ok_or(ParseError::UnfinishedString)?;
                         let ch = if pc == '{' {
                             state.next_char(); // consume '{'
                             read_braced_unicode(state)?
@@ -195,7 +210,7 @@ fn read_quoted_string<R: CharReader>(
                         };
                         result.push(ch);
                     }
-                    _ => return Err(Error::InvalidEscape),
+                    _ => return Err(ParseError::InvalidEscape),
                 }
             }
             Some(c) => result.push(c),
@@ -213,7 +228,7 @@ fn accumulate_hex(hex: u32, c: char) -> u32 {
 
 fn read_braced_unicode<R: CharReader>(
     state: &mut CharReaderState<R>,
-) -> Result<char, Error> {
+) -> Result<char, ParseError> {
     let mut hex = 0u32;
     let mut count = 0u32;
     loop {
@@ -221,19 +236,19 @@ fn read_braced_unicode<R: CharReader>(
             Some('}') => {
                 state.next_char();
                 if count == 0 || count > 8 {
-                    return Err(Error::InvalidEscape);
+                    return Err(ParseError::InvalidEscape);
                 }
-                return core::char::from_u32(hex).ok_or(Error::InvalidEscape);
+                return core::char::from_u32(hex).ok_or(ParseError::InvalidEscape);
             }
             Some(c) if c.is_ascii_hexdigit() => {
                 state.next_char();
                 count += 1;
                 if count > 8 {
-                    return Err(Error::InvalidEscape);
+                    return Err(ParseError::InvalidEscape);
                 }
                 hex = accumulate_hex(hex, c);
             }
-            _ => return Err(Error::InvalidEscape),
+            _ => return Err(ParseError::InvalidEscape),
         }
     }
 }
@@ -241,20 +256,20 @@ fn read_braced_unicode<R: CharReader>(
 fn read_hex_char<R: CharReader>(
     state: &mut CharReaderState<R>,
     len: usize,
-) -> Result<char, Error> {
+) -> Result<char, ParseError> {
     let hex = read_hex_digits(state, len)?;
-    core::char::from_u32(hex).ok_or(Error::InvalidEscape)
+    core::char::from_u32(hex).ok_or(ParseError::InvalidEscape)
 }
 
 fn read_hex_digits<R: CharReader>(
     state: &mut CharReaderState<R>,
     len: usize,
-) -> Result<u32, Error> {
+) -> Result<u32, ParseError> {
     let mut hex = 0u32;
     for _ in 0..len {
-        let c = state.next_char().ok_or(Error::UnfinishedString)?;
+        let c = state.next_char().ok_or(ParseError::UnfinishedString)?;
         if !c.is_ascii_hexdigit() {
-            return Err(Error::InvalidEscape);
+            return Err(ParseError::InvalidEscape);
         }
         hex = accumulate_hex(hex, c);
     }
@@ -264,7 +279,7 @@ fn read_hex_digits<R: CharReader>(
 fn read_unquoted_number_or_keyword<R: CharReader>(
     state: &mut CharReaderState<R>,
     first: char,
-) -> Result<Token, Error> {
+) -> Result<Token, ParseError> {
     let mut buffer = String::new();
     buffer.push(first);
 
