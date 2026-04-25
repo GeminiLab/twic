@@ -52,6 +52,7 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | 0 | Initialized from prior loop state | New RLCR loop started | All AC |
 | 0 | Renamed Error to ParseError, unconditional core::error::Error impl | Codex R0 review: no_std trait gap | CQ-6 |
 | 0 | Added \r/\r\n line break handling in span tracking | Codex R0 review: span correctness | CQ-5 |
+| 0 | Reject overflowing float literals (is_finite check) | Codex code review P5 | CQ-5 |
 
 #### Active Tasks
 | Task | Target AC | Status | Tag | Owner | Notes |
@@ -72,10 +73,15 @@ Implement a complete tokenizer (state machine) and recursive descent parser for 
 | CQ-1 | Fixed dyn std::error::Error in span.rs for no_std | R0 | - | Changed to dyn Error (core::error::Error) |
 | CQ-6 | Renamed Error to ParseError, unconditional core::error::Error | R0 | - | no_std trait impl for ParseError |
 | CQ-5 | Added \r/\r\n line break handling with last_was_cr | R0 | - | Correct span tracking for CRLF/CR |
+| CQ-5 | Reject overflowing float literals with is_finite check | R0 | - | 1e10000 now returns InvalidNumber |
+| CQ-4 | P7: Token enum public exposure | R0 | - | Deferred: stylistic, not blocking |
+| CQ-1 | P7: cfg_attr no_std vs unconditional no_std | R0 | - | Deferred: standard pattern for optional-std |
 
 ### Explicitly Deferred
 | Task | Original AC | Deferred Since | Justification | When to Reconsider |
 |------|-------------|----------------|---------------|-------------------|
+| Make Token pub(crate) | CQ-4 | R0 | P7 stylistic concern; no public tokenizer yet. Changing now would be premature if tokenizer becomes public later. | If tokenizer API remains internal after v0.2 |
+| Unconditional #![no_std] | CQ-1 | R0 | P7 stylistic concern; cfg_attr is the standard pattern for optional-std crates. Compiler catches accidental std usage in gated code. | If std leakage becomes a recurring problem |
 
 ### Open Issues
 | Issue | Discovered Round | Blocking AC | Resolution Path |
