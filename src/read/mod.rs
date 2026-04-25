@@ -347,6 +347,9 @@ fn parse_number(text: &str) -> Result<Value, ParseError> {
         let val: f64 = text
             .parse()
             .map_err(|_| ParseError::InvalidNumber(text.to_owned()))?;
+        if !val.is_finite() {
+            return Err(ParseError::InvalidNumber(text.to_owned()));
+        }
         Ok(Value::Number(Number::Float(val)))
     } else if text.starts_with('-') {
         let val: i64 = text
@@ -824,6 +827,14 @@ mod tests {
         // -0x8000000000000000 == i64::MIN, should succeed
         let result = parse_str("-0x8000000000000000");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_float_overflow_rejected() {
+        // Overflowing float should be an error, not silently parsed as infinity.
+        // Use explicit inf keyword for infinity.
+        let result = parse_str("1e10000");
+        assert!(result.is_err(), "overflowing float should be rejected");
     }
 
     #[test]
